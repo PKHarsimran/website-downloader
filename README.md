@@ -16,7 +16,7 @@ Website Downloader is a powerful Python script designed to download entire websi
 1. Clone the repository:
    
    ```bash
-   git clone https://github.com/your-username/website-downloader.git
+   git clone https://github.com/PKHarsimran/website-downloader.git
    cd website-downloader
    ```
 2. Install the required dependencies:
