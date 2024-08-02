@@ -4,7 +4,7 @@ import wget
 import logging
 import subprocess
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, unquote
 
 # Configure logging
 logging.basicConfig(filename='web_scraper.log', level=logging.DEBUG, 
@@ -24,6 +24,17 @@ def save_file(url, destination):
         logging.info(f"Successfully downloaded {url}")
     except Exception as e:
         logging.error(f"Error downloading {url}: {e}")
+
+def create_directory(path):
+    """
+    Creates a directory if it doesn't exist.
+
+    Args:
+        path (str): Path of the directory to create.
+    """
+    if not os.path.exists(path):
+        os.makedirs(path)
+        logging.info(f"Created directory {path}")
 
 def download_page(url, destination):
     """
@@ -51,10 +62,9 @@ def download_page(url, destination):
             else:
                 page_path += '.html'
         
+        page_path = unquote(page_path)
         page_dir = os.path.dirname(page_path)
-        if not os.path.exists(page_dir):
-            os.makedirs(page_dir)
-            logging.info(f"Created directory {page_dir}")
+        create_directory(page_dir)
 
         with open(page_path, 'w', encoding='utf-8') as file:
             file.write(soup.prettify())
@@ -66,6 +76,28 @@ def download_page(url, destination):
         logging.error(f"HTTP error for {url}: {e}")
     except Exception as e:
         logging.error(f"Error processing {url}: {e}")
+
+def save_resource(url, destination):
+    """
+    Save a resource file to the specified destination.
+
+    Args:
+        url (str): URL of the resource.
+        destination (str): Path to save the resource.
+    """
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        content_type = response.headers.get('content-type')
+        if 'text/html' in content_type:
+            save_file(url, destination)
+        else:
+            with open(destination, 'wb') as file:
+                for chunk in response.iter_content(chunk_size=8192):
+                    file.write(chunk)
+        logging.info(f"Successfully saved resource {url}")
+    except Exception as e:
+        logging.error(f"Error saving resource {url}: {e}")
 
 def download_resources(soup, base_url, destination):
     """
@@ -89,7 +121,7 @@ def download_resources(soup, base_url, destination):
 
     for resource_url, resource_path in resources:
         if not os.path.exists(resource_path):
-            save_file(resource_url, resource_path)
+            save_resource(resource_url, resource_path)
     
     return [url for url, _ in resources if url.endswith('.html') or url.endswith('/')]
 
