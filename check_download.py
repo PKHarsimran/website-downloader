@@ -1,5 +1,5 @@
 import os
-from bs4 import BeautifulSoup4
+from bs4 import beautifulsoup4
 from urllib.parse import urljoin, urlparse
 import argparse
 import threading
