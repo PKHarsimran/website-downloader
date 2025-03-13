@@ -35,7 +35,6 @@ def create_directory(path):
     if not os.path.exists(path):
         os.makedirs(path)
         logging.info(f"Created directory {path}")
-
 def download_page(url, destination):
     """
     Downloads an HTML page and saves it to the specified destination.
@@ -45,8 +44,7 @@ def download_page(url, destination):
         destination (str): Path to save the downloaded page.
 
     Returns:
-        soup (BeautifulSoup): Parsed HTML content of the page.
-        page_path (str): Path where the page was saved.
+        tuple: (soup, page_path) if successful, otherwise (None, None)
     """
     try:
         response = requests.get(url)
@@ -74,8 +72,10 @@ def download_page(url, destination):
 
     except requests.exceptions.RequestException as e:
         logging.error(f"HTTP error for {url}: {e}")
+        return None, None
     except Exception as e:
         logging.error(f"Error processing {url}: {e}")
+        return None, None
 
 def save_resource(url, destination):
     """
