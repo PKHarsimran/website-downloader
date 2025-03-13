@@ -35,7 +35,6 @@ def create_directory(path):
     if not os.path.exists(path):
         os.makedirs(path)
         logging.info(f"Created directory {path}")
-
 def download_page(url, destination):
     """
     Downloads an HTML page and saves it to the specified destination.
@@ -45,8 +44,7 @@ def download_page(url, destination):
         destination (str): Path to save the downloaded page.
 
     Returns:
-        soup (BeautifulSoup): Parsed HTML content of the page.
-        page_path (str): Path where the page was saved.
+        tuple: (soup, page_path) if successful, otherwise (None, None)
     """
     try:
         response = requests.get(url)
@@ -74,8 +72,10 @@ def download_page(url, destination):
 
     except requests.exceptions.RequestException as e:
         logging.error(f"HTTP error for {url}: {e}")
+        return None, None
     except Exception as e:
         logging.error(f"Error processing {url}: {e}")
+        return None, None
 
 def save_resource(url, destination):
     """
@@ -164,43 +164,42 @@ def get_default_folder_name(url):
     return folder_name
 
 if __name__ == "__main__":
-    website_url = input("Enter the URL of the website to download: ").strip()
-    download_destination = input("Enter the destination folder to save the website (leave empty to use default): ").strip()
+    import os
+    # Retrieve environment variables (if set)
+    url_to_download = os.getenv('URL_TO_DOWNLOAD')
+    download_destination = os.getenv('DOWNLOAD_DESTINATION')
 
-    # Ensure the URL has a scheme
-    if not website_url.startswith(('http://', 'https://')):
-        website_url = 'http://' + website_url
-
-    # Set a default destination folder if none is provided
+    # If not provided via environment, prompt the user
+    if not url_to_download:
+        url_to_download = input("Enter the URL of the website to download: ").strip()
     if not download_destination:
-        download_destination = get_default_folder_name(website_url)
+        download_destination = input("Enter the destination folder to save the website (leave empty to use default): ").strip()
 
-    logging.info(f"Starting download for {website_url} into {download_destination}")
+    # Use a default destination if the user input is empty
+    if not download_destination:
+        download_destination = get_default_folder_name(url_to_download)
+
+    logging.info(f"Starting download for {url_to_download} into {download_destination}")
 
     try:
-        download_website(website_url, download_destination)
+        download_website(url_to_download, download_destination)
         print("\nWebsite downloaded successfully.")
         logging.info("Website downloaded successfully.")
     except Exception as e:
         print(f"\nAn error occurred: {e}")
         logging.error(f"An error occurred: {e}")
 
-    # Ask user if they want to check the downloaded website
+    # Optionally prompt for checking the download
     check_download = input("Would you like to check if the website is correctly downloaded? (yes/no): ").strip().lower()
     if check_download == 'yes':
-        subprocess.run(['python', 'check_download.py', '--url', website_url, '--dir', download_destination])
-
-        # Read missing files and attempt to download them again
+        subprocess.run(['python', 'check_download.py', '--url', url_to_download, '--dir', download_destination])
         if os.path.exists('missing_files.txt'):
             with open('missing_files.txt', 'r') as file:
                 missing_files = [line.strip() for line in file.readlines()]
-            
             if missing_files:
                 print("\nAttempting to re-download missing files...")
                 logging.info("Attempting to re-download missing files...")
                 for resource_url in missing_files:
                     resource_path = os.path.join(download_destination, os.path.basename(urlparse(resource_url).path))
                     save_file(resource_url, resource_path)
-
-                # Re-check the downloaded website
-                subprocess.run(['python', 'check_download.py', '--url', website_url, '--dir', download_destination])
+                subprocess.run(['python', 'check_download.py', '--url', url_to_download, '--dir', download_destination])
