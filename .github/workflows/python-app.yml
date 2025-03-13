@@ -14,27 +14,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # Step 1: Check out the repository
-    - name: Check out code
-      uses: actions/checkout@v2
+      # Step 1: Check out the repository
+      - name: Check out code
+        uses: actions/checkout@v2
 
-    # Step 2: Set up Python
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: '3.9'
+      # Step 2: Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
 
-    # Step 3: Install dependencies
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      # Step 3: Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    # Step 4: Run tests
-    - name: Run tests
-      run: |
-        python website-downloader.py
+      # Step 4: Run tests with piped input
+      - name: Run tests
+        run: |
+          printf "https://harsim.ca/resume/" | python website-downloader.py
 
-    # Step 5: Verify logs (optional)
-    - name: Check logs for errors
-      run: cat web_scraper.log
+      # Step 5: Verify logs (optional)
+      - name: Check logs for errors
+        run: cat web_scraper.log
