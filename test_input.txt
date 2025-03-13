@@ -1,2 +1,0 @@
-https://harsim.ca/
-./test_output/
