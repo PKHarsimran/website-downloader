@@ -33,7 +33,7 @@ jobs:
     # Step 4: Run tests
     - name: Run tests
       run: |
-        python website-downloader.py < test_input.txt
+        python website-downloader.py
 
     # Step 5: Verify logs (optional)
     - name: Check logs for errors
