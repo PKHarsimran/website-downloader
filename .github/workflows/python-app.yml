@@ -1,28 +1,38 @@
 name: Test Website Downloader
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v2
 
-    - name: Setup Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: '3.x'
+      - name: Setup Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Run website downloader
-      env:
-        URL_TO_DOWNLOAD: "https://harsim.ca/resume/"
-        DOWNLOAD_DESTINATION: "/output"
-      run: |
-        python website-downloader.py
+      - name: Run website downloader
+        env:
+          URL_TO_DOWNLOAD: "https://harsim.ca/resume/"
+          DOWNLOAD_DESTINATION: "/path/to/save"
+        run: |
+          # Since URL and destination are provided via environment variables,
+          # the script won't prompt for them. It will still prompt for the
+          # check-download question, so we pipe "no" as the answer.
+          printf "no\n" | python website-downloader.py
