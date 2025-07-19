@@ -46,12 +46,14 @@ Distributed under the MIT licence.
 # Logging
 # ---------------------------------------------------------------------------
 
-LOG_FMT = "% (asctime)s | %(levelname)-8s | %(threadName)s | %(message)s"
+# 🛠️  FIXED: removed stray space after `%` which broke %-format strings
+LOG_FMT = "%(asctime)s | %(levelname)-8s | %(threadName)s | %(message)s"
 logging.basicConfig(
     filename="web_scraper.log",
     level=logging.DEBUG,
     format=LOG_FMT,
     datefmt="%H:%M:%S",
+    force=True,  # reset any prior basicConfig in interactive shells / tests
 )
 console = logging.StreamHandler(sys.stdout)
 console.setLevel(logging.INFO)
@@ -258,21 +260,3 @@ def parse_args() -> argparse.Namespace:
         description="Recursively mirror a website for offline use.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--url", required=True, help="Root URL to crawl, e.g. https://example.com")
-    p.add_argument("--destination", help="Output folder (default: derived from domain)")
-    p.add_argument("--max-pages", type=int, default=50, help="HTML page crawl limit")
-    p.add_argument("--threads", type=int, default=6, help="Concurrent resource download threads")
-    return p.parse_args()
-
-
-def main() -> None:
-    args = parse_args()
-    root = make_root(args.url, args.destination)
-    try:
-        crawl_site(args.url, root, max_pages=args.max_pages, threads=args.threads)
-    except KeyboardInterrupt:
-        log.warning("Interrupted by user – partial mirror saved at %s", root)
-
-
-if __name__ == "__main__":
-    main()
