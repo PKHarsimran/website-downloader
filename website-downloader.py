@@ -14,7 +14,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 from typing import Optional  # ✅ for Python ≤ 3.9 compatibility
 
-"""website_downloader.py – v4.1 (2025‑07‑19)
+"""website_downloader.py – v2.0 (2025‑07‑19)
 ================================================
 A **tiny, pure‑Python** site‑mirroring CLI that now ships with a friendlier
 command‑line UX and a few quality‑of‑life tweaks:
@@ -36,7 +36,7 @@ command‑line UX and a few quality‑of‑life tweaks:
 
 * Defaults:
   * Output folder → the domain with dots swapped for underscores.
-  * `--max-pages` → **50** (changed from 100 in v4.0 to match spec).
+  * `--max-pages` → **50** (changed from 100 in v2.0 to match spec).
   * `--threads`   → 6 concurrent resource fetchers.
 
 Distributed under the MIT licence.
@@ -254,8 +254,25 @@ def make_root(url: str, custom: Optional[str]) -> Path:  # 🔧 changed for 3.9
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Recursively mirror a website for offline use.")
+    p = argparse.ArgumentParser(
+        description="Recursively mirror a website for offline use.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     p.add_argument("--url", required=True, help="Root URL to crawl, e.g. https://example.com")
     p.add_argument("--destination", help="Output folder (default: derived from domain)")
-    p.add_argument("--max-pages", type=int, default=50, help="HTML page crawl limit (default: 50)")
-    p.add_argument("--threads", type=int, default=6
+    p.add_argument("--max-pages", type=int, default=50, help="HTML page crawl limit")
+    p.add_argument("--threads", type=int, default=6, help="Concurrent resource download threads")
+    return p.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    root = make_root(args.url, args.destination)
+    try:
+        crawl_site(args.url, root, max_pages=args.max_pages, threads=args.threads)
+    except KeyboardInterrupt:
+        log.warning("Interrupted by user – partial mirror saved at %s", root)
+
+
+if __name__ == "__main__":
+    main()
