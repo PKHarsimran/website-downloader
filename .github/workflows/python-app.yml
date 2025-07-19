@@ -34,7 +34,7 @@ jobs:
       - name: 🚀 Smoke-test: mirror 5 pages
         run: |
           python website-downloader.py \
-                 --url "https://harsim.ca/" \
+                 --url "https://harsim.ca" \
                  --destination "_mirror" \
                  --max-pages 5
 
