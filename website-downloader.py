@@ -118,7 +118,7 @@ def to_local_path(parsed: urlparse, site_root: Path) -> Path:
 # Fetch helpers
 # ---------------------------------------------------------------------------
 
-def fetch_html(url: str) -> Optional[BeautifulSoup]:  # 🔧 was BeautifulSoup | None
+def fetch_html(url: str) -> Optional[BeautifulSoup]:  # compatible type hint
     """Download *url* and return a BeautifulSoup tree (or None on error)."""
     try:
         resp = SESSION.get(url, timeout=TIMEOUT)
@@ -248,7 +248,7 @@ def crawl_site(start_url: str, root: Path, *, max_pages: int, threads: int) -> N
 # CLI
 # ---------------------------------------------------------------------------
 
-def make_root(url: str, custom: str | None) -> Path:
+def make_root(url: str, custom: Optional[str]) -> Path:  # 🔧 changed for 3.9
     """Derive the output folder from *url* if *custom* not supplied."""
     return Path(custom) if custom else Path(urlparse(url).netloc.replace(".", "_"))
 
@@ -258,19 +258,4 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--url", required=True, help="Root URL to crawl, e.g. https://example.com")
     p.add_argument("--destination", help="Output folder (default: derived from domain)")
     p.add_argument("--max-pages", type=int, default=50, help="HTML page crawl limit (default: 50)")
-    p.add_argument("--threads", type=int, default=6, help="Concurrent resource downloads")
-    return p.parse_args()
-
-
-def main() -> None:
-    args = parse_args()
-    root = make_root(args.url, args.destination)
-    log.info("🔍  Starting crawl → %s", root)
-    crawl_site(args.url, root, max_pages=args.max_pages, threads=args.threads)
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        log.warning("Interrupted by user – exiting.")
+    p.add_argument("--threads", type=int, default=6
