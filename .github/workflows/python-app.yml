@@ -8,42 +8,43 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-mirror:
+  smoke-test:
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.9', '3.10', '3.11']
 
     steps:
-      # 1️⃣  Checkout
-      - name: 📥 Checkout source
+      # 1️⃣ Checkout source
+      - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      # 2️⃣  Python
-      - name: 🐍 Set-up Python
+      # 2️⃣ Set-up Python
+      - name: 🐍 Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      # 3️⃣  Dependencies
-      - name: 📦 Install deps
+      # 3️⃣ Install deps
+      - name: 📦 Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 4️⃣  Smoke test (mirror five pages)
-      - name: 🚀 Smoke-test: mirror 5 pages
+      # 4️⃣ Smoke test – mirror five pages
+      - name: 🚀 Smoke-test (5 pages)
         run: |
-          python website_downloader.py \
+          python website-downloader.py \
                  --url "https://harsim.ca/" \
                  --destination "_mirror" \
                  --max-pages 5
 
-      # 5️⃣  Upload artefact
-      - name: 📦 Upload mirrored site
+      # 5️⃣ Upload artefact for inspection
+      - name: 📤 Upload mirrored site
         uses: actions/upload-artifact@v4
         with:
-          name: mirrored_site_py${{ matrix.python-version }}
+          name: mirror_py${{ matrix.python-version }}
           path: _mirror
