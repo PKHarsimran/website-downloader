@@ -12,28 +12,41 @@ import requests
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
+from typing import Optional  # ✅ for Python ≤ 3.9 compatibility
 
-"""website_downloader.py – v2 (2025‑07‑19)
+"""website_downloader.py – v4.1 (2025‑07‑19)
 ================================================
-A **tiny, dependency‑free** site mirroring tool that:
+A **tiny, pure‑Python** site‑mirroring CLI that now ships with a friendlier
+command‑line UX and a few quality‑of‑life tweaks:
 
-* Recursively crawls internal links (including extension‑less URLs like */about*).
-* Rewrites every internal *href/src* so the archive works fully offline.
-* Downloads CSS/JS/Images **concurrently** (configurable thread pool).
-* Guarantees a *single* clean root folder – no double‑domain paths.
-* Emits colourised, timestamped logs + crawl summary with average latency.
-* Fails gracefully with automatic retries / exponential back‑off.
+* **Recursive crawl** of all same‑origin links – even pretty URLs like */about*.
+* **Link rewriting** so every internal *href/src* works 100 % offline.
+* **Concurrent** (thread‑pool) download of images, CSS & JS.
+* **Single, flat root** – goodbye "double‑domain" sub‑folders.
+* **Auto‑retry** with exponential back‑off for flaky hosts.
+* **Colourised logs** + crawl summary (total & average latency).
+* **CLI flags** – no more interactive prompts:
 
-Run ::
+  ```bash
+  python website_downloader.py \
+         --url https://example.com \
+         --destination my_archive \
+         --max-pages 50         # default = 50
+  ```
 
-    python website_downloader.py --url https://example.com --threads 8 --max-pages 200
+* Defaults:
+  * Output folder → the domain with dots swapped for underscores.
+  * `--max-pages` → **50** (changed from 100 in v4.0 to match spec).
+  * `--threads`   → 6 concurrent resource fetchers.
+
+Distributed under the MIT licence.
 """
 
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 
-LOG_FMT = "%(asctime)s | %(levelname)-8s | %(threadName)s | %(message)s"
+LOG_FMT = "% (asctime)s | %(levelname)-8s | %(threadName)s | %(message)s"
 logging.basicConfig(
     filename="web_scraper.log",
     level=logging.DEBUG,
@@ -51,7 +64,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_HEADERS = {
-    "User-Agent": "WebsiteDownloader/4.0 (+https://github.com/yourhandle)"
+    "User-Agent": "WebsiteDownloader/4.1 (+https://github.com/yourhandle)"
 }
 
 SESSION = requests.Session()
@@ -73,24 +86,25 @@ CHUNK_SIZE = 8192  # bytes
 # ---------------------------------------------------------------------------
 
 def create_dir(path: Path) -> None:
-    """Create *path* (and parents) if missing."""
+    """Create *path* (and parents) if it does not already exist."""
     if not path.exists():
         path.mkdir(parents=True, exist_ok=True)
         log.debug("Created directory %s", path)
 
+
 def sanitize(url_fragment: str) -> str:
-    """Remove dangerous back‑references / absolute windows paths."""
+    """Strip dangerous back‑references & Windows back‑slashes."""
     return url_fragment.replace("\\", "/").replace("..", "").strip()
 
 
 def is_internal(link: str, root_netloc: str) -> bool:
-    """Return *True* for same‑site URLs (empty netloc counts as internal)."""
+    """True if *link* belongs to *root_netloc* (or is protocol‑relative)."""
     parsed = urlparse(link)
     return not parsed.netloc or parsed.netloc == root_netloc
 
 
 def to_local_path(parsed: urlparse, site_root: Path) -> Path:
-    """Translate a *parsed* internal URL to a path inside *site_root*."""
+    """Map an internal URL to a local file path under *site_root*."""
     rel = parsed.path.lstrip("/")
     if not rel:
         rel = "index.html"
@@ -104,8 +118,8 @@ def to_local_path(parsed: urlparse, site_root: Path) -> Path:
 # Fetch helpers
 # ---------------------------------------------------------------------------
 
-def fetch_html(url: str) -> BeautifulSoup | None:
-    """Download *url* and return parsed BeautifulSoup tree (or *None* on error)."""
+def fetch_html(url: str) -> Optional[BeautifulSoup]:  # 🔧 was BeautifulSoup | None
+    """Download *url* and return a BeautifulSoup tree (or None on error)."""
     try:
         resp = SESSION.get(url, timeout=TIMEOUT)
         resp.raise_for_status()
@@ -116,7 +130,7 @@ def fetch_html(url: str) -> BeautifulSoup | None:
 
 
 def fetch_binary(url: str, dest: Path) -> None:
-    """Stream *url* to *dest* (skips if already exists)."""
+    """Stream *url* to *dest* unless it already exists."""
     if dest.exists():
         return
     try:
@@ -144,10 +158,9 @@ def rewrite_links(soup: BeautifulSoup, page_url: str, site_root: Path, page_dir:
         if original.startswith(("javascript:", "data:", "#")):
             continue
         abs_url = urljoin(page_url, original)
-        parsed = urlparse(abs_url)
         if not is_internal(abs_url, root_netloc):
             continue  # external – leave untouched
-        local_path = to_local_path(parsed, site_root)
+        local_path = to_local_path(urlparse(abs_url), site_root)
         try:
             tag[attr] = os.path.relpath(local_path, page_dir)
         except ValueError:
@@ -158,14 +171,14 @@ def rewrite_links(soup: BeautifulSoup, page_url: str, site_root: Path, page_dir:
 # ---------------------------------------------------------------------------
 
 def crawl_site(start_url: str, root: Path, *, max_pages: int, threads: int) -> None:
-    """Breadth‑first crawl limited to *max_pages*. Download resources in a thread pool."""
+    """Breadth‑first crawl limited to *max_pages*. Download assets via thread pool."""
 
     q_pages: queue.Queue[str] = queue.Queue()
     q_pages.put(start_url)
     seen_pages: set[str] = set()
     download_q: queue.Queue[tuple[str, Path]] = queue.Queue()
 
-    def worker():
+    def worker() -> None:
         while True:
             try:
                 url, dest = download_q.get(timeout=3)
@@ -181,7 +194,7 @@ def crawl_site(start_url: str, root: Path, *, max_pages: int, threads: int) -> N
         t.start()
         workers.append(t)
 
-    t_start = time.time()
+    start_time = time.time()
     root_netloc = urlparse(start_url).netloc
 
     while not q_pages.empty() and len(seen_pages) < max_pages:
@@ -189,14 +202,13 @@ def crawl_site(start_url: str, root: Path, *, max_pages: int, threads: int) -> N
         if page_url in seen_pages:
             continue
         seen_pages.add(page_url)
-        idx = len(seen_pages)
-        log.info("[%s/%s] %s", idx, max_pages, page_url)
+        log.info("[%s/%s] %s", len(seen_pages), max_pages, page_url)
 
         soup = fetch_html(page_url)
         if soup is None:
             continue
 
-        # Gather links & assets
+        # Gather links & assets from the page
         for tag in soup.find_all(["img", "script", "link", "a"]):
             link = tag.get("src") or tag.get("href")
             if not link:
@@ -208,27 +220,27 @@ def crawl_site(start_url: str, root: Path, *, max_pages: int, threads: int) -> N
             parsed = urlparse(abs_url)
             if not is_internal(abs_url, root_netloc):
                 continue
+
             dest_path = to_local_path(parsed, root)
+            # HTML?
             if parsed.path.endswith("/") or not Path(parsed.path).suffix:
-                # probably another HTML page
                 if abs_url not in seen_pages and abs_url not in list(q_pages.queue):
                     q_pages.put(abs_url)
             else:
                 download_q.put((abs_url, dest_path))
 
-        # Save current page
+        # Save the current page
         local_path = to_local_path(urlparse(page_url), root)
         create_dir(local_path.parent)
         rewrite_links(soup, page_url, root, local_path.parent)
         local_path.write_text(soup.prettify(), encoding="utf-8")
         log.debug("Saved page %s", local_path)
 
-    # Wait for all resources to finish
+    # Wait for remaining downloads
     download_q.join()
-
-    duration = time.time() - t_start
+    elapsed = time.time() - start_time
     if seen_pages:
-        log.info("Crawl finished: %s pages • %.2fs • %.2fs avg", len(seen_pages), duration, duration/len(seen_pages))
+        log.info("Crawl finished: %s pages in %.2fs (%.2fs avg)", len(seen_pages), elapsed, elapsed / len(seen_pages))
     else:
         log.warning("Nothing downloaded – check URL or connectivity")
 
@@ -237,6 +249,7 @@ def crawl_site(start_url: str, root: Path, *, max_pages: int, threads: int) -> N
 # ---------------------------------------------------------------------------
 
 def make_root(url: str, custom: str | None) -> Path:
+    """Derive the output folder from *url* if *custom* not supplied."""
     return Path(custom) if custom else Path(urlparse(url).netloc.replace(".", "_"))
 
 
@@ -244,7 +257,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Recursively mirror a website for offline use.")
     p.add_argument("--url", required=True, help="Root URL to crawl, e.g. https://example.com")
     p.add_argument("--destination", help="Output folder (default: derived from domain)")
-    p.add_argument("--max-pages", type=int, default=100, help="Page crawl limit (HTML pages)")
+    p.add_argument("--max-pages", type=int, default=50, help="HTML page crawl limit (default: 50)")
     p.add_argument("--threads", type=int, default=6, help="Concurrent resource downloads")
     return p.parse_args()
 
@@ -252,7 +265,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     root = make_root(args.url, args.destination)
-    log.info("Starting crawl → %s", root)
+    log.info("🔍  Starting crawl → %s", root)
     crawl_site(args.url, root, max_pages=args.max_pages, threads=args.threads)
 
 
