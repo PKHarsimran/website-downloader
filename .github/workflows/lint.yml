@@ -1,0 +1,26 @@
+name: Lint & Style
+
+on: [push, pull_request]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+
+      - run: |
+          pip install --upgrade pip
+          pip install black flake8 isort
+
+      - name: Black --check
+        run: black . --check --diff
+
+      - name: isort --check
+        run: isort . --check-only --diff
+
+      - name: flake8
+        run: flake8 website_downloader.py
