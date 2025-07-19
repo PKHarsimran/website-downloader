@@ -1,5 +1,6 @@
 # 🌐 Website Downloader CLI
 [![CI – Website Downloader](https://github.com/PKHarsimran/website-downloader/actions/workflows/python-app.yml/badge.svg)](https://github.com/PKHarsimran/website-downloader/actions/workflows/python-app.yml)
+
 Website Downloader CLI is a **tiny, pure-Python** site-mirroring tool that lets you grab a complete, browsable offline copy of any publicly-reachable website:
 
 * Recursively crawls every same-origin link (including “pretty” `/about/` URLs)
