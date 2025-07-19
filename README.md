@@ -2,14 +2,38 @@
 
 Website Downloader is a powerful Python script designed to download entire websites along with all their assets. This tool allows you to create a local copy of a website, including HTML pages, images, CSS, JavaScript files, and other resources. It ensures that all internal links and resources are downloaded for offline viewing. Perfect for web archiving and offline browsing!
 
-## ✨ Features
+---
 
-- 🔄 Recursively download entire websites.
-- 💾 Save HTML pages with all linked assets.
-- 🔗 Convert links for offline viewing.
-- 🖼️ Handle various file types including images, CSS, and JavaScript.
-- 📜 Log download progress and errors.
-- ✔️ Verify the completeness of the downloaded website and re-download missing files if necessary.
+# CLI Refactor: Moving from input() to argparse
+
+## 🎯 Objective
+
+This update improves the usability and automation of the project by replacing all `input()` prompts with `argparse` command-line flags.
+
+## 🛠️ Changes Made
+
+- Replaced interactive `input()` calls with standard argparse flags:
+  - `--url` for the target website URL
+  - `--destination` for the download folder path
+  - `--max-pages` to set the maximum number of pages to crawl (default = 50)
+- Added `--help` documentation to guide users
+- Enforced required arguments for critical parameters like `--url`
+- Introduced cleaner defaults where applicable (e.g., default output directory)
+
+## ✅ Benefits
+
+- 🧩 **Scriptable**: Can now run the script in automated pipelines or cron jobs
+- 💻 **User-Friendly**: Users can discover options via `--help`
+- 🔁 **Repeatable**: Enables consistent execution with no manual input required
+- 📦 **Future-Proof**: Prepares the project for more advanced CLI features (like subcommands)
+
+## 🗓️ Next Steps (Planned)
+
+- Merge both `website-downloader.py` and `check_download.py` into a unified CLI using subcommands (`download`, `verify`)
+- Add flags for retries, request timeout, include-external-resources, and more
+- Package the project with a `console_scripts` entry point for system-wide usage
+
+---
 
 ## 📥 Installation
 
@@ -58,38 +82,7 @@ Website Downloader is a powerful Python script designed to download entire websi
     - Provides detailed statistics including the total number of HTML files processed, unique resources found, and missing resource percentages.
 - `requirements.txt`: A file listing the required dependencies.
 
----
 
-# CLI Refactor: Moving from input() to argparse
-
-## 🎯 Objective
-
-This update improves the usability and automation of the project by replacing all `input()` prompts with `argparse` command-line flags.
-
-## 🛠️ Changes Made
-
-- Replaced interactive `input()` calls with standard argparse flags:
-  - `--url` for the target website URL
-  - `--destination` for the download folder path
-  - `--max-pages` to set the maximum number of pages to crawl (default = 50)
-- Added `--help` documentation to guide users
-- Enforced required arguments for critical parameters like `--url`
-- Introduced cleaner defaults where applicable (e.g., default output directory)
-
-## ✅ Benefits
-
-- 🧩 **Scriptable**: Can now run the script in automated pipelines or cron jobs
-- 💻 **User-Friendly**: Users can discover options via `--help`
-- 🔁 **Repeatable**: Enables consistent execution with no manual input required
-- 📦 **Future-Proof**: Prepares the project for more advanced CLI features (like subcommands)
-
-## 🗓️ Next Steps (Planned)
-
-- Merge both `website-downloader.py` and `check_download.py` into a unified CLI using subcommands (`download`, `verify`)
-- Add flags for retries, request timeout, include-external-resources, and more
-- Package the project with a `console_scripts` entry point for system-wide usage
-
----
 
 ## 🤝 Contributing
 
