@@ -1,5 +1,5 @@
-# .github/workflows/website-downloader.yml
-name: Website Downloader CI
+# .github/workflows/ci.yml
+name: CI – Website Downloader
 
 on:
   push:
@@ -9,48 +9,37 @@ on:
   workflow_dispatch:
 
 jobs:
-  download:
+  test-mirror:
     runs-on: ubuntu-latest
+
     strategy:
       matrix:
-        python-version: ['3.9', '3.10', '3.11']
-      fail-fast: false
+        python-version: ['3.9', '3.10', '3.11']   # run on three CPython versions
 
     steps:
-      # --- Setup ----------------------------------------------------------------
-      - name: ⬇️  Checkout source
+      - name: 📥 Checkout source
         uses: actions/checkout@v4
 
-      - name: 🐍  Setup Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: 🐍 Set-up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
+          cache: "pip"
 
-      # --- Dependency cache -----------------------------------------------------
-      - name: 📦  Cache pip wheel-house
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: >-
-            ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}-${{ matrix.python-version }}
-
-      - name: 🔧  Install dependencies
+      - name: 📦 Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # --- Run the crawler ------------------------------------------------------
-      - name: 🌐  Mirror target site
+      - name: 🚀 Smoke-test: mirror 5 pages
         run: |
-          python website_downloader.py \
+          python website-downloader.py \
                  --url "https://harsim.ca/" \
-                 --destination "archive" \
-                 --max-pages 30
+                 --destination "_mirror" \
+                 --max-pages 5
 
-      # --- Upload artifact ------------------------------------------------------
-      - name: 📤  Publish archive
+      - name: 📦 Upload mirrored site (artefact)
         uses: actions/upload-artifact@v4
         with:
-          name: harsimca_${{ matrix.python-version }}
-          path: archive
-          retention-days: 7
+          name: mirrored_site_py${{ matrix.python-version }}
+          path: _mirror
