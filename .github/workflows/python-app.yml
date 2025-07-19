@@ -1,38 +1,45 @@
-name: Test Website Downloader
+# .github/workflows/ci.yml
+name: CI – Website Downloader
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 jobs:
-  build:
+  test-mirror:
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']   # run on three CPython versions
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+      - name: 📥 Checkout source
+        uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v2
+      - name: 🐍 Set-up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
 
-      - name: Install dependencies
+      - name: 📦 Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run website downloader
-        env:
-          URL_TO_DOWNLOAD: "https://harsim.ca/resume/"
-          DOWNLOAD_DESTINATION: "/path/to/save"
+      - name: 🚀 Smoke-test: mirror 5 pages
         run: |
-          # Since URL and destination are provided via environment variables,
-          # the script won't prompt for them. It will still prompt for the
-          # check-download question, so we pipe "no" as the answer.
-          printf "no\n" | python website-downloader.py
+          python website-downloader.py \
+                 --url "https://harsim.ca/" \
+                 --destination "_mirror" \
+                 --max-pages 5
+
+      - name: 📦 Upload mirrored site (artefact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirrored_site_py${{ matrix.python-version }}
+          path: _mirror

@@ -1,290 +1,263 @@
 import os
-import requests
-import wget
+import sys
+import time
+import queue
+import argparse
 import logging
-import subprocess
+import threading
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
+
+import requests
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from urllib.parse import urljoin, urlparse, unquote
-import time
+from urllib3.util import Retry
 
-# =============================================================================
-# Logging Configuration
-# =============================================================================
-# Configure logging to both file and console for real-time debugging and post-run analysis.
-logging.basicConfig(filename='web_scraper.log', level=logging.DEBUG,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
-console = logging.StreamHandler()
-console.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-console.setFormatter(formatter)
-logging.getLogger('').addHandler(console)
+"""website_downloader.py – v2 (2025‑07‑19)
+================================================
+A **tiny, dependency‑free** site mirroring tool that:
 
-# =============================================================================
-# Persistent Session with Retry Logic
-# =============================================================================
-# This session is reused for all HTTP requests. The retry logic helps to automatically
-# recover from transient network errors.
-session = requests.Session()
-retries = Retry(total=3, backoff_factor=0.3, status_forcelist=[500, 502, 503, 504])
-adapter = HTTPAdapter(max_retries=retries)
-session.mount('http://', adapter)
-session.mount('https://', adapter)
+* Recursively crawls internal links (including extension‑less URLs like */about*).
+* Rewrites every internal *href/src* so the archive works fully offline.
+* Downloads CSS/JS/Images **concurrently** (configurable thread pool).
+* Guarantees a *single* clean root folder – no double‑domain paths.
+* Emits colourised, timestamped logs + crawl summary with average latency.
+* Fails gracefully with automatic retries / exponential back‑off.
 
-# =============================================================================
-# Utility Functions
-# =============================================================================
-def save_file(url, destination):
-    """
-    Downloads a file from a URL to the specified destination using wget.
+Run ::
 
-    Args:
-        url (str): URL of the file to download.
-        destination (str): Local path where the file will be saved.
-    """
+    python website_downloader.py --url https://example.com --threads 8 --max-pages 200
+"""
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+LOG_FMT = "%(asctime)s | %(levelname)-8s | %(threadName)s | %(message)s"
+logging.basicConfig(
+    filename="web_scraper.log",
+    level=logging.DEBUG,
+    format=LOG_FMT,
+    datefmt="%H:%M:%S",
+)
+console = logging.StreamHandler(sys.stdout)
+console.setLevel(logging.INFO)
+console.setFormatter(logging.Formatter(LOG_FMT, datefmt="%H:%M:%S"))
+logging.getLogger().addHandler(console)
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# HTTP session (retry, time‑outs, custom UA)
+# ---------------------------------------------------------------------------
+
+DEFAULT_HEADERS = {
+    "User-Agent": "WebsiteDownloader/4.0 (+https://github.com/yourhandle)"
+}
+
+SESSION = requests.Session()
+RETRY_STRAT = Retry(
+    total=5,
+    backoff_factor=0.5,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["GET", "HEAD"],
+)
+SESSION.mount("http://", HTTPAdapter(max_retries=RETRY_STRAT))
+SESSION.mount("https://", HTTPAdapter(max_retries=RETRY_STRAT))
+SESSION.headers.update(DEFAULT_HEADERS)
+
+TIMEOUT = 15  # seconds
+CHUNK_SIZE = 8192  # bytes
+
+# ---------------------------------------------------------------------------
+# Helper utilities
+# ---------------------------------------------------------------------------
+
+def create_dir(path: Path) -> None:
+    """Create *path* (and parents) if missing."""
+    if not path.exists():
+        path.mkdir(parents=True, exist_ok=True)
+        log.debug("Created directory %s", path)
+
+def sanitize(url_fragment: str) -> str:
+    """Remove dangerous back‑references / absolute windows paths."""
+    return url_fragment.replace("\\", "/").replace("..", "").strip()
+
+
+def is_internal(link: str, root_netloc: str) -> bool:
+    """Return *True* for same‑site URLs (empty netloc counts as internal)."""
+    parsed = urlparse(link)
+    return not parsed.netloc or parsed.netloc == root_netloc
+
+
+def to_local_path(parsed: urlparse, site_root: Path) -> Path:
+    """Translate a *parsed* internal URL to a path inside *site_root*."""
+    rel = parsed.path.lstrip("/")
+    if not rel:
+        rel = "index.html"
+    elif rel.endswith("/"):
+        rel += "index.html"
+    elif not Path(rel).suffix:
+        rel += ".html"
+    return site_root / rel
+
+# ---------------------------------------------------------------------------
+# Fetch helpers
+# ---------------------------------------------------------------------------
+
+def fetch_html(url: str) -> BeautifulSoup | None:
+    """Download *url* and return parsed BeautifulSoup tree (or *None* on error)."""
     try:
-        logging.info(f"Downloading file: {url} to {destination}")
-        wget.download(url, destination)
-        logging.info(f"Successfully downloaded file: {url}")
-    except Exception as e:
-        logging.error(f"Error downloading file {url}: {e}")
+        resp = SESSION.get(url, timeout=TIMEOUT)
+        resp.raise_for_status()
+        return BeautifulSoup(resp.text, "html.parser")
+    except Exception as exc:
+        log.warning("HTTP error for %s – %s", url, exc)
+        return None
 
-def create_directory(path):
-    """
-    Creates a directory if it does not exist.
 
-    Args:
-        path (str): The directory path to create.
-    """
-    if not os.path.exists(path):
-        os.makedirs(path)
-        logging.info(f"Created directory: {path}")
-
-# =============================================================================
-# Core Download Functions
-# =============================================================================
-def download_page(url, destination):
-    """
-    Downloads an HTML page using a persistent session and saves it to the specified destination.
-
-    Args:
-        url (str): URL of the page to download.
-        destination (str): Local directory where the page should be saved.
-
-    Returns:
-        tuple: (BeautifulSoup object, path to saved page) if successful, otherwise (None, None)
-    """
+def fetch_binary(url: str, dest: Path) -> None:
+    """Stream *url* to *dest* (skips if already exists)."""
+    if dest.exists():
+        return
     try:
-        logging.debug(f"Starting download of page: {url}")
-        start_time = time.time()
-        response = session.get(url, timeout=10)
-        response.raise_for_status()
-        elapsed = time.time() - start_time
-        logging.debug(f"Received response for {url} (Status: {response.status_code}) in {elapsed:.2f} seconds")
+        resp = SESSION.get(url, timeout=TIMEOUT, stream=True)
+        resp.raise_for_status()
+        create_dir(dest.parent)
+        with dest.open("wb") as fh:
+            for chunk in resp.iter_content(CHUNK_SIZE):
+                fh.write(chunk)
+        log.debug("Saved resource → %s", dest)
+    except Exception as exc:
+        log.error("Failed to save %s – %s", url, exc)
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+# ---------------------------------------------------------------------------
+# Link rewriting
+# ---------------------------------------------------------------------------
 
-        # Build file path based on the URL structure
-        parsed_url = urlparse(url)
-        page_path = os.path.join(destination, parsed_url.netloc + parsed_url.path)
-        if not page_path.endswith('.html'):
-            page_path = page_path.rstrip('/') + ('/index.html' if page_path.endswith('/') else '.html')
+def rewrite_links(soup: BeautifulSoup, page_url: str, site_root: Path, page_dir: Path) -> None:
+    root_netloc = urlparse(page_url).netloc
+    for tag in soup.find_all(["a", "img", "script", "link"]):
+        attr = "href" if tag.name in {"a", "link"} else "src"
+        if not tag.has_attr(attr):
+            continue
+        original = sanitize(tag[attr])
+        if original.startswith(("javascript:", "data:", "#")):
+            continue
+        abs_url = urljoin(page_url, original)
+        parsed = urlparse(abs_url)
+        if not is_internal(abs_url, root_netloc):
+            continue  # external – leave untouched
+        local_path = to_local_path(parsed, site_root)
+        try:
+            tag[attr] = os.path.relpath(local_path, page_dir)
+        except ValueError:
+            tag[attr] = str(local_path)
 
-        page_path = unquote(page_path)
-        page_dir = os.path.dirname(page_path)
-        create_directory(page_dir)
+# ---------------------------------------------------------------------------
+# Crawl coordinator
+# ---------------------------------------------------------------------------
 
-        with open(page_path, 'w', encoding='utf-8') as file:
-            file.write(soup.prettify())
-        logging.info(f"Saved page: {url} to {page_path} (Elapsed time: {elapsed:.2f} seconds)")
-        return soup, page_path
+def crawl_site(start_url: str, root: Path, *, max_pages: int, threads: int) -> None:
+    """Breadth‑first crawl limited to *max_pages*. Download resources in a thread pool."""
 
-    except requests.exceptions.RequestException as e:
-        logging.error(f"HTTP error while downloading page {url}: {e}")
-        return None, None
-    except Exception as e:
-        logging.error(f"General error processing page {url}: {e}")
-        return None, None
+    q_pages: queue.Queue[str] = queue.Queue()
+    q_pages.put(start_url)
+    seen_pages: set[str] = set()
+    download_q: queue.Queue[tuple[str, Path]] = queue.Queue()
 
-def save_resource(url, destination):
-    """
-    Downloads a resource (image, CSS, JS, etc.) using a persistent session with streaming,
-    and saves it to the specified destination.
+    def worker():
+        while True:
+            try:
+                url, dest = download_q.get(timeout=3)
+            except queue.Empty:
+                return
+            fetch_binary(url, dest)
+            download_q.task_done()
 
-    Args:
-        url (str): URL of the resource.
-        destination (str): Local file path to save the resource.
-    """
-    try:
-        logging.debug(f"Starting download of resource: {url}")
-        start_time = time.time()
-        response = session.get(url, stream=True, timeout=10)
-        response.raise_for_status()
-        elapsed = time.time() - start_time
-        logging.debug(f"Fetched resource {url} in {elapsed:.2f} seconds (Status: {response.status_code})")
+    # Launch download workers
+    workers: list[threading.Thread] = []
+    for i in range(max(1, threads)):
+        t = threading.Thread(target=worker, name=f"DL-{i+1}", daemon=True)
+        t.start()
+        workers.append(t)
 
-        content_type = response.headers.get('content-type', '')
-        if 'text/html' in content_type:
-            # Use wget to download if resource is HTML
-            save_file(url, destination)
-        else:
-            with open(destination, 'wb') as file:
-                total_bytes = 0
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        file.write(chunk)
-                        total_bytes += len(chunk)
-                logging.debug(f"Downloaded {total_bytes} bytes for resource: {url}")
-        logging.info(f"Successfully saved resource: {url} (Elapsed time: {elapsed:.2f} seconds)")
-    except Exception as e:
-        logging.error(f"Error saving resource {url}: {e}")
+    t_start = time.time()
+    root_netloc = urlparse(start_url).netloc
 
-def download_resources(soup, base_url, destination):
-    """
-    Downloads all resources (images, CSS, JS, and internal links) from a parsed HTML page.
-    Only resources from the same domain as base_url are processed.
+    while not q_pages.empty() and len(seen_pages) < max_pages:
+        page_url = q_pages.get()
+        if page_url in seen_pages:
+            continue
+        seen_pages.add(page_url)
+        idx = len(seen_pages)
+        log.info("[%s/%s] %s", idx, max_pages, page_url)
 
-    Args:
-        soup (BeautifulSoup): Parsed HTML content of the page.
-        base_url (str): The URL of the page to determine the allowed domain.
-        destination (str): Local directory to save the resources.
+        soup = fetch_html(page_url)
+        if soup is None:
+            continue
 
-    Returns:
-        list: List of sub-page URLs (internal links) extracted from the page.
-    """
-    resources = set()
-    allowed_domain = urlparse(base_url).netloc
-    logging.debug(f"Allowed domain for resources: {allowed_domain}")
-
-    # Extract resource URLs from specified tags
-    for tag in soup.find_all(['img', 'link', 'script', 'a']):
-        src = tag.get('src') or tag.get('href')
-        if src:
-            resource_url = urljoin(base_url, src)
-            resource_domain = urlparse(resource_url).netloc
-            if resource_domain and resource_domain != allowed_domain:
-                logging.debug(f"Skipping external resource: {resource_url}")
+        # Gather links & assets
+        for tag in soup.find_all(["img", "script", "link", "a"]):
+            link = tag.get("src") or tag.get("href")
+            if not link:
                 continue
-            logging.debug(f"Processing resource: {resource_url}")
-            resource_path = os.path.join(destination, os.path.basename(urlparse(resource_url).path))
-            resources.add((resource_url, resource_path))
+            link = sanitize(link)
+            if link.startswith(("javascript:", "data:", "#")):
+                continue
+            abs_url = urljoin(page_url, link)
+            parsed = urlparse(abs_url)
+            if not is_internal(abs_url, root_netloc):
+                continue
+            dest_path = to_local_path(parsed, root)
+            if parsed.path.endswith("/") or not Path(parsed.path).suffix:
+                # probably another HTML page
+                if abs_url not in seen_pages and abs_url not in list(q_pages.queue):
+                    q_pages.put(abs_url)
+            else:
+                download_q.put((abs_url, dest_path))
 
-    # Download each resource if it doesn't already exist
-    for resource_url, resource_path in resources:
-        if not os.path.exists(resource_path):
-            save_resource(resource_url, resource_path)
-        else:
-            logging.debug(f"Resource already exists, skipping: {resource_url}")
+        # Save current page
+        local_path = to_local_path(urlparse(page_url), root)
+        create_dir(local_path.parent)
+        rewrite_links(soup, page_url, root, local_path.parent)
+        local_path.write_text(soup.prettify(), encoding="utf-8")
+        log.debug("Saved page %s", local_path)
 
-    # Return only internal links that look like HTML pages or directories
-    sub_pages = [url for url, _ in resources if url.endswith('.html') or url.endswith('/')]
-    logging.debug(f"Found {len(sub_pages)} sub-pages in resources")
-    return sub_pages
+    # Wait for all resources to finish
+    download_q.join()
 
-def download_website(url, destination, max_pages=50):
-    """
-    Recursively downloads the main page and all linked internal pages and resources.
-    Stops when the number of downloaded pages reaches max_pages. Also estimates and logs
-    the total and remaining download time.
-
-    Args:
-        url (str): Starting URL for the website crawl.
-        destination (str): Local directory to save the website.
-        max_pages (int): Maximum number of pages to download.
-    """
-    allowed_domain = urlparse(url).netloc
-    logging.info(f"Allowed domain for website crawl: {allowed_domain}")
-    to_download = [(url, destination)]
-    downloaded = set()
-    total_page_time = 0.0  # Total time taken for page downloads
-
-    while to_download and len(downloaded) < max_pages:
-        current_url, current_dest = to_download.pop()
-        logging.debug(f"Processing URL: {current_url}")
-        if urlparse(current_url).netloc and urlparse(current_url).netloc != allowed_domain:
-            logging.debug(f"Skipping external URL: {current_url}")
-            continue
-        if current_url in downloaded:
-            logging.debug(f"Already downloaded: {current_url}")
-            continue
-
-        start_page = time.time()
-        downloaded.add(current_url)
-        logging.info(f"Downloading page {len(downloaded)}/{max_pages}: {current_url}")
-        soup, page_path = download_page(current_url, current_dest)
-        elapsed_page = time.time() - start_page
-        total_page_time += elapsed_page
-
-        # Calculate average page download time and estimate total and remaining time
-        pages_downloaded = len(downloaded)
-        average_page_time = total_page_time / pages_downloaded
-        estimated_total_time = average_page_time * max_pages
-        remaining_time = estimated_total_time - total_page_time
-        logging.info(f"Page {pages_downloaded} downloaded in {elapsed_page:.2f}s. "
-                     f"Avg. page time: {average_page_time:.2f}s. "
-                     f"Estimated total time: {estimated_total_time:.2f}s. "
-                     f"Estimated remaining time: {remaining_time:.2f}s.")
-
-        if soup and page_path:
-            sub_pages = download_resources(soup, current_url, os.path.dirname(page_path))
-            logging.debug(f"Sub-pages found: {sub_pages}")
-            for sub_page in sub_pages:
-                if sub_page not in downloaded:
-                    to_download.append((sub_page, current_dest))
-
-    if downloaded:
-        logging.info(f"Crawling finished. Total pages downloaded: {len(downloaded)}. "
-                     f"Total page download time: {total_page_time:.2f}s. "
-                     f"Average page time: {total_page_time / len(downloaded):.2f}s.")
+    duration = time.time() - t_start
+    if seen_pages:
+        log.info("Crawl finished: %s pages • %.2fs • %.2fs avg", len(seen_pages), duration, duration/len(seen_pages))
     else:
-        logging.warning("No pages were downloaded.")
+        log.warning("Nothing downloaded – check URL or connectivity")
 
-def get_default_folder_name(url):
-    """
-    Generates a default folder name based on the URL's domain.
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
-    Args:
-        url (str): The URL to base the folder name on.
+def make_root(url: str, custom: str | None) -> Path:
+    return Path(custom) if custom else Path(urlparse(url).netloc.replace(".", "_"))
 
-    Returns:
-        str: A sanitized folder name derived from the domain.
-    """
-    parsed_url = urlparse(url)
-    folder_name = parsed_url.netloc.replace('.', '_')
-    return folder_name
 
-# =============================================================================
-# Main Execution
-# =============================================================================
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Recursively mirror a website for offline use.")
+    p.add_argument("--url", required=True, help="Root URL to crawl, e.g. https://example.com")
+    p.add_argument("--destination", help="Output folder (default: derived from domain)")
+    p.add_argument("--max-pages", type=int, default=100, help="Page crawl limit (HTML pages)")
+    p.add_argument("--threads", type=int, default=6, help="Concurrent resource downloads")
+    return p.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    root = make_root(args.url, args.destination)
+    log.info("Starting crawl → %s", root)
+    crawl_site(args.url, root, max_pages=args.max_pages, threads=args.threads)
+
+
 if __name__ == "__main__":
-    # Retrieve environment variables (if set)
-    url_to_download = os.getenv('URL_TO_DOWNLOAD')
-    download_destination = os.getenv('DOWNLOAD_DESTINATION')
-
-    # If not provided via environment, prompt the user for input
-    if not url_to_download:
-        url_to_download = input("Enter the URL of the website to download: ").strip()
-    if not download_destination:
-        download_destination = input("Enter the destination folder to save the website (leave empty to use default): ").strip()
-
-    # Use a default destination based on the domain if no folder is provided
-    if not download_destination:
-        download_destination = get_default_folder_name(url_to_download)
-
-    logging.info(f"Starting download for {url_to_download} into {download_destination}")
-
     try:
-        download_website(url_to_download, download_destination)
-        print("\nWebsite downloaded successfully.")
-        logging.info("Website downloaded successfully.")
-    except Exception as e:
-        print(f"\nAn error occurred: {e}")
-        logging.error(f"An error occurred: {e}")
-
-    # Call the check script and pass the log file for additional checks.
-    check_download = input("Would you like to check if the website is correctly downloaded? (yes/no): ").strip().lower()
-    if check_download == 'yes':
-        # Pass the log file ('web_scraper.log') along with URL and directory.
-        subprocess.run(['python', 'check_download.py', '--url', url_to_download,
-                        '--dir', download_destination, '--log', 'web_scraper.log'])
+        main()
+    except KeyboardInterrupt:
+        log.warning("Interrupted by user – exiting.")
