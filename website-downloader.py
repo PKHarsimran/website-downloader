@@ -172,7 +172,7 @@ def rewrite_links(soup: BeautifulSoup, page_url: str, site_root: Path, page_dir:
 # Crawl coordinator
 # ---------------------------------------------------------------------------
 
-def crawl_site(start_url: str, root: Path, *, max_pages: int, threads: int) -> None:
+def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None:
     """Breadth‑first crawl limited to *max_pages*. Download assets via thread pool."""
 
     q_pages: queue.Queue[str] = queue.Queue()
@@ -260,3 +260,18 @@ def parse_args() -> argparse.Namespace:
         description="Recursively mirror a website for offline use.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+
+if __name__ == '__main__':
+    host = "https://example.com"
+    root = "example_com"
+    max_pages = 50
+    threads = 6
+
+    arguments = [sys.argv[x:x+2] for x in range(1, len(sys.argv),2)]
+    for arg in arguments:
+        if arg[0] == "--url": host = arg[1]
+        if arg[0] == "--destination": root = arg[1]
+        if arg[0] == "--max-pages": max_pages = arg[1]
+        if arg[0] == "--threads": threads = arg[1]
+
+    crawl_site(host, Path(root), int(max_pages,10), int(threads,10))
