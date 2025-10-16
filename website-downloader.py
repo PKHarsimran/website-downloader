@@ -6,7 +6,6 @@ import queue
 import argparse
 import logging
 import threading
-import re
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -68,7 +67,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+    "User-Agent": "WebsiteDownloader/4.1 (+https://github.com/yourhandle)"
 }
 
 SESSION = requests.Session()
@@ -174,7 +173,7 @@ def rewrite_links(soup: BeautifulSoup, page_url: str, site_root: Path, page_dir:
 # Crawl coordinator
 # ---------------------------------------------------------------------------
 
-def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None:
+def crawl_site(start_url: str, root: Path, *, max_pages: int, threads: int) -> None:
     """Breadth‑first crawl limited to *max_pages*. Download assets via thread pool."""
 
     q_pages: queue.Queue[str] = queue.Queue()
