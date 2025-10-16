@@ -1,3 +1,4 @@
+import errno
 import os
 import sys
 import time
@@ -5,6 +6,7 @@ import queue
 import argparse
 import logging
 import threading
+import re
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -66,7 +68,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_HEADERS = {
-    "User-Agent": "WebsiteDownloader/4.1 (+https://github.com/yourhandle)"
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 }
 
 SESSION = requests.Session()
@@ -172,7 +174,7 @@ def rewrite_links(soup: BeautifulSoup, page_url: str, site_root: Path, page_dir:
 # Crawl coordinator
 # ---------------------------------------------------------------------------
 
-def crawl_site(start_url: str, root: Path, *, max_pages: int, threads: int) -> None:
+def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None:
     """Breadth‑first crawl limited to *max_pages*. Download assets via thread pool."""
 
     q_pages: queue.Queue[str] = queue.Queue()
@@ -232,11 +234,15 @@ def crawl_site(start_url: str, root: Path, *, max_pages: int, threads: int) -> N
                 download_q.put((abs_url, dest_path))
 
         # Save the current page
-        local_path = to_local_path(urlparse(page_url), root)
-        create_dir(local_path.parent)
-        rewrite_links(soup, page_url, root, local_path.parent)
-        local_path.write_text(soup.prettify(), encoding="utf-8")
-        log.debug("Saved page %s", local_path)
+        try:
+            local_path = to_local_path(urlparse(page_url), root)
+            create_dir(local_path.parent)
+            rewrite_links(soup, page_url, root, local_path.parent)
+            local_path.write_text(soup.prettify(), encoding="utf-8")
+            log.debug("Saved page %s", local_path)
+        except OSError as exc:
+            if exc.errno == errno.ENAMETOOLONG:
+               log.error("Impossible to save file %s: filename too long", local_path, exc_info=True)
 
     # Wait for remaining downloads
     download_q.join()
