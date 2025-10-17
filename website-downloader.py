@@ -1,19 +1,18 @@
-import errno
-import os
-import sys
-import time
-import queue
 import argparse
 import logging
+import os
+import queue
+import sys
 import threading
+import time
 from pathlib import Path
+from typing import Optional  # ✅ for Python ≤ 3.9 compatibility
 from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
-from typing import Optional  # ✅ for Python ≤ 3.9 compatibility
 
 """website_downloader.py – v2.0 (2025‑07‑19)
 ================================================
@@ -88,6 +87,7 @@ CHUNK_SIZE = 8192  # bytes
 # Helper utilities
 # ---------------------------------------------------------------------------
 
+
 def create_dir(path: Path) -> None:
     """Create *path* (and parents) if it does not already exist."""
     if not path.exists():
@@ -117,9 +117,11 @@ def to_local_path(parsed: urlparse, site_root: Path) -> Path:
         rel += ".html"
     return site_root / rel
 
+
 # ---------------------------------------------------------------------------
 # Fetch helpers
 # ---------------------------------------------------------------------------
+
 
 def fetch_html(url: str) -> Optional[BeautifulSoup]:  # compatible type hint
     """Download *url* and return a BeautifulSoup tree (or None on error)."""
@@ -147,11 +149,15 @@ def fetch_binary(url: str, dest: Path) -> None:
     except Exception as exc:
         log.error("Failed to save %s – %s", url, exc)
 
+
 # ---------------------------------------------------------------------------
 # Link rewriting
 # ---------------------------------------------------------------------------
 
-def rewrite_links(soup: BeautifulSoup, page_url: str, site_root: Path, page_dir: Path) -> None:
+
+def rewrite_links(
+    soup: BeautifulSoup, page_url: str, site_root: Path, page_dir: Path
+) -> None:
     root_netloc = urlparse(page_url).netloc
     for tag in soup.find_all(["a", "img", "script", "link"]):
         attr = "href" if tag.name in {"a", "link"} else "src"
@@ -169,11 +175,13 @@ def rewrite_links(soup: BeautifulSoup, page_url: str, site_root: Path, page_dir:
         except ValueError:
             tag[attr] = str(local_path)
 
+
 # ---------------------------------------------------------------------------
 # Crawl coordinator
 # ---------------------------------------------------------------------------
 
-def crawl_site(start_url: str, root: Path, *, max_pages: int, threads: int) -> None:
+
+def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None:
     """Breadth‑first crawl limited to *max_pages*. Download assets via thread pool."""
 
     q_pages: queue.Queue[str] = queue.Queue()
@@ -233,27 +241,30 @@ def crawl_site(start_url: str, root: Path, *, max_pages: int, threads: int) -> N
                 download_q.put((abs_url, dest_path))
 
         # Save the current page
-        try:
-            local_path = to_local_path(urlparse(page_url), root)
-            create_dir(local_path.parent)
-            rewrite_links(soup, page_url, root, local_path.parent)
-            local_path.write_text(soup.prettify(), encoding="utf-8")
-            log.debug("Saved page %s", local_path)
-        except OSError as exc:
-            if exc.errno == errno.ENAMETOOLONG:
-               log.error("Impossible to save file %s: filename too long", local_path, exc_info=True)
+        local_path = to_local_path(urlparse(page_url), root)
+        create_dir(local_path.parent)
+        rewrite_links(soup, page_url, root, local_path.parent)
+        local_path.write_text(soup.prettify(), encoding="utf-8")
+        log.debug("Saved page %s", local_path)
 
     # Wait for remaining downloads
     download_q.join()
     elapsed = time.time() - start_time
     if seen_pages:
-        log.info("Crawl finished: %s pages in %.2fs (%.2fs avg)", len(seen_pages), elapsed, elapsed / len(seen_pages))
+        log.info(
+            "Crawl finished: %s pages in %.2fs (%.2fs avg)",
+            len(seen_pages),
+            elapsed,
+            elapsed / len(seen_pages),
+        )
     else:
         log.warning("Nothing downloaded – check URL or connectivity")
+
 
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def make_root(url: str, custom: Optional[str]) -> Path:  # 🔧 changed for 3.9
     """Derive the output folder from *url* if *custom* not supplied."""
@@ -265,3 +276,23 @@ def parse_args() -> argparse.Namespace:
         description="Recursively mirror a website for offline use.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+
+
+if __name__ == "__main__":
+    host = "https://example.com"
+    root = "example_com"
+    max_pages = 50
+    threads = 6
+
+    arguments = [sys.argv[x : x + 2] for x in range(1, len(sys.argv), 2)]
+    for arg in arguments:
+        if arg[0] == "--url":
+            host = arg[1]
+        if arg[0] == "--destination":
+            root = arg[1]
+        if arg[0] == "--max-pages":
+            max_pages = arg[1]
+        if arg[0] == "--threads":
+            threads = arg[1]
+
+    crawl_site(host, Path(root), int(max_pages, 10), int(threads, 10))
