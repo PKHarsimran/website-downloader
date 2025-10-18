@@ -24,7 +24,10 @@ from urllib3.util import Retry
 
 LOG_FMT = "%(asctime)s | %(levelname)-8s | %(threadName)s | %(message)s"
 
-DEFAULT_HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"}
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) "
+    "Gecko/20100101 Firefox/128.0"
+}
 
 TIMEOUT = 15  # seconds
 CHUNK_SIZE = 8192  # bytes
@@ -293,11 +296,10 @@ def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None
             dest_path = to_local_path(parsed, root)
             # HTML?
             if parsed.path.endswith("/") or not Path(parsed.path).suffix:
-                if (
-                    abs_url not in seen_pages
-                    and abs_url not in list(q_pages.queue)  # type: ignore[arg-type]
-                ):
-                    q_pages.put(abs_url)
+                if abs_url not in seen_pages and abs_url not in list(
+                    q_pages.queue
+                ):  # type: ignore[arg-type]
+                        q_pages.put(abs_url)
             else:
                 download_q.put((abs_url, dest_path))
 
