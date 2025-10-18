@@ -23,4 +23,4 @@ jobs:
         run: isort . --check-only --diff
 
       - name: flake8
-        run: flake8 website_downloader.py
+        run: flake8 website-downloader.py
