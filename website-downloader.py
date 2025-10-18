@@ -260,7 +260,6 @@ def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None
     else:
         log.warning("Nothing downloaded – check URL or connectivity")
 
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -307,5 +306,3 @@ if __name__ == "__main__":
     host = args.url
     root = make_root(args.url, args.destination)
     crawl_site(host, root, args.max_pages, args.threads)
-
-
