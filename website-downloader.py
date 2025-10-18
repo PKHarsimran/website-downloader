@@ -262,6 +262,16 @@ def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None
 
 
 # ---------------------------------------------------------------------------
+# Helper function for output folder
+# ---------------------------------------------------------------------------
+
+
+def make_root(url: str, custom: Optional[str]) -> Path:
+    """Derive the output folder from the URL if custom not supplied."""
+    return Path(custom) if custom else Path(urlparse(url).netloc.replace(".", "_"))
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
