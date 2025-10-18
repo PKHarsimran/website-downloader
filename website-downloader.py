@@ -299,7 +299,7 @@ def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None
                 if abs_url not in seen_pages and abs_url not in list(
                     q_pages.queue
                 ):  # type: ignore[arg-type]
-                        q_pages.put(abs_url)
+                    q_pages.put(abs_url)
             else:
                 download_q.put((abs_url, dest_path))
 
