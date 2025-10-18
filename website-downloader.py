@@ -265,34 +265,47 @@ def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None
 # CLI
 # ---------------------------------------------------------------------------
 
-
-def make_root(url: str, custom: Optional[str]) -> Path:  # 🔧 changed for 3.9
-    """Derive the output folder from *url* if *custom* not supplied."""
-    return Path(custom) if custom else Path(urlparse(url).netloc.replace(".", "_"))
-
-
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Recursively mirror a website for offline use.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    p.add_argument(
+        "--url",
+        required=True,
+        help="Starting URL to crawl (e.g., https://example.com/)",
+    )
+    p.add_argument(
+        "--destination",
+        default=None,
+        help="Output folder (defaults to a folder derived from the URL).",
+    )
+    p.add_argument(
+        "--max-pages",
+        type=int,
+        default=50,
+        help="Maximum number of HTML pages to crawl.",
+    )
+    p.add_argument(
+        "--threads",
+        type=int,
+        default=6,
+        help="Number of concurrent download threads.",
+    )
+    return p.parse_args()
 
 
 if __name__ == "__main__":
-    host = "https://example.com"
-    root = "example_com"
-    max_pages = 50
-    threads = 6
+    args = parse_args()
+    if args.max_pages < 1:
+        log.error("--max-pages must be >= 1")
+        sys.exit(2)
+    if args.threads < 1:
+        log.error("--threads must be >= 1")
+        sys.exit(2)
 
-    arguments = [sys.argv[x : x + 2] for x in range(1, len(sys.argv), 2)]
-    for arg in arguments:
-        if arg[0] == "--url":
-            host = arg[1]
-        if arg[0] == "--destination":
-            root = arg[1]
-        if arg[0] == "--max-pages":
-            max_pages = arg[1]
-        if arg[0] == "--threads":
-            threads = arg[1]
+    host = args.url
+    root = make_root(args.url, args.destination)
+    crawl_site(host, root, args.max_pages, args.threads)
 
-    crawl_site(host, Path(root), int(max_pages, 10), int(threads, 10))
+
