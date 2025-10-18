@@ -260,9 +260,11 @@ def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None
     else:
         log.warning("Nothing downloaded – check URL or connectivity")
 
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
