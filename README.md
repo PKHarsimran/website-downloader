@@ -59,6 +59,26 @@ python website-downloader.py \
 
 > **Removed:** The old `check_download.py` verifier is no longer required because the new downloader performs integrity checks (missing files, broken internal links) during the crawl and reports any issues directly in the log summary.
 
+## ✨ Recent Improvements
+
+✅ Type Conversion Fix
+Fixed a TypeError caused by int(..., 10) when non-string arguments were passed.
+
+✅ Safer Path Handling
+Added intelligent path shortening and hashing for long filenames to prevent
+OSError: [Errno 36] File name too long errors.
+
+✅ Improved CLI Experience
+Rebuilt argument parsing with argparse for cleaner syntax and validation.
+
+✅ Code Quality & Linting
+Applied Black + Flake8 formatting; the project now passes all CI lint checks.
+
+✅ Logging & Stability
+Improved error handling, logging, and fallback mechanisms for failed writes.
+
+Huge thanks to @ilGobbo00
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please open an issue or submit a pull request for any improvements or bug fixes.
