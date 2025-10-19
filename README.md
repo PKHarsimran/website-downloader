@@ -1,35 +1,37 @@
-# 🌐 Website Downloader CLI
+# 🌐 Website Downloader CLI  
 [![CI – Website Downloader](https://github.com/PKHarsimran/website-downloader/actions/workflows/python-app.yml/badge.svg)](https://github.com/PKHarsimran/website-downloader/actions/workflows/python-app.yml)
 
-Website Downloader CLI is a **tiny, pure-Python** site-mirroring tool that lets you grab a complete, browsable offline copy of any publicly-reachable website:
+Website Downloader CLI is a **tiny, pure-Python** site-mirroring tool that lets you grab a complete, browsable offline copy of any publicly reachable website:
 
 * Recursively crawls every same-origin link (including “pretty” `/about/` URLs)
 * Downloads **all** assets (images, CSS, JS, …)
 * Rewrites internal links so pages open flawlessly from your local disk
 * Streams files concurrently with automatic retry / back-off
 * Generates a clean, flat directory tree (`example_com/index.html`, `example_com/about/index.html`, …)
+* Handles extremely long filenames safely via hashing and graceful fallbacks
 
-> Perfect for web-archiving, pentesting labs, long flights, or just poking around a site without an internet connection.
+> Perfect for web archiving, pentesting labs, long flights, or just poking around a site without an internet connection.
 
 ---
 
 ## 🚀 Quick Start
 
 ```bash
-# 1.  Grab the code
+# 1. Grab the code
 git clone https://github.com/PKHarsimran/website-downloader.git
 cd website-downloader
 
-# 2.  Install deps (only two runtime libs!)
+# 2. Install dependencies (only two runtime libs!)
 pip install -r requirements.txt
 
-# 3.  Mirror a site – no prompts needed
-python website_downloader.py \
-        --url https://harsim.ca \
-        --destination harsim_ca_backup \
-        --max-pages 100 \
-        --threads 8
+# 3. Mirror a site – no prompts needed
+python website-downloader.py \
+    --url https://harsim.ca \
+    --destination harsim_ca_backup \
+    --max-pages 100 \
+    --threads 8
 ```
+
 ---
 
 ## 🛠️ Libraries Used
