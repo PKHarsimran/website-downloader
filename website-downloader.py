@@ -88,6 +88,21 @@ def sanitize(url_fragment: str) -> str:
     return url_fragment.replace("\\", "/").replace("..", "").strip()
 
 
+NON_FETCHABLE_SCHEMES = {"mailto", "tel", "sms", "javascript", "data", "geo", "blob"}
+
+
+def is_httpish(u: str) -> bool:
+    """True iff the URL is http(s) or relative (no scheme)."""
+    p = urlparse(u)
+    return (p.scheme in ("http", "https")) or (p.scheme == "")
+
+
+def is_non_fetchable(u: str) -> bool:
+    """True iff the URL clearly shouldn't be fetched (mailto:, tel:, data:, ...)."""
+    p = urlparse(u)
+    return p.scheme in NON_FETCHABLE_SCHEMES
+
+
 def is_internal(link: str, root_netloc: str) -> bool:
     """Return True if link belongs to root_netloc (or is protocol-relative)."""
     parsed = urlparse(link)
@@ -226,7 +241,7 @@ def rewrite_links(
         if not tag.has_attr(attr):
             continue
         original = sanitize(tag[attr])
-        if original.startswith(("javascript:", "data:", "#")):
+        if original.startswith("#") or is_non_fetchable(original) or not is_httpish(original):
             continue
         abs_url = urljoin(page_url, original)
         if not is_internal(abs_url, root_netloc):
@@ -257,6 +272,10 @@ def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None
                 url, dest = download_q.get(timeout=3)
             except queue.Empty:
                 return
+            if is_non_fetchable(url) or not is_httpish(url):
+                log.debug("Skip non-fetchable: %s", url)
+                download_q.task_done()
+                continue
             fetch_binary(url, dest)
             download_q.task_done()
 
@@ -286,7 +305,7 @@ def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None
             if not link:
                 continue
             link = sanitize(link)
-            if link.startswith(("javascript:", "data:", "#")):
+            if link.startswith("#") or is_non_fetchable(link) or not is_httpish(link):
                 continue
             abs_url = urljoin(page_url, link)
             parsed = urlparse(abs_url)
