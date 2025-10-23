@@ -241,7 +241,11 @@ def rewrite_links(
         if not tag.has_attr(attr):
             continue
         original = sanitize(tag[attr])
-        if original.startswith("#") or is_non_fetchable(original) or not is_httpish(original):
+        if (
+            original.startswith("#")
+            or is_non_fetchable(original)
+            or not is_httpish(original)
+        ):
             continue
         abs_url = urljoin(page_url, original)
         if not is_internal(abs_url, root_netloc):
