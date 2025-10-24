@@ -82,7 +82,10 @@ Applied Black + Flake8 formatting; the project now passes all CI lint checks.
 ✅ Logging & Stability
 Improved error handling, logging, and fallback mechanisms for failed writes.
 
-Huge thanks to @ilGobbo00
+✅ Skip Non-Fetchable Schemes  
+The crawler now safely skips `mailto:`, `tel:`, `javascript:`, and `data:` links instead of trying to download them.  
+This prevents `requests.exceptions.InvalidSchema: No connection adapters were found` errors and keeps those links intact in saved HTML.
+
 
 ## 🤝 Contributing
 
