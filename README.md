@@ -94,3 +94,6 @@ Contributions are welcome! Please open an issue or submit a pull request for any
 ## 📜 License
 
 This project is licensed under the MIT License.
+
+## Donation
+https://www.paypal.com/donate/?business=MVEWG3QAX6UBC&no_recurring=1&item_name=Github+Project+-+Website+downloader&currency_code=CAD
