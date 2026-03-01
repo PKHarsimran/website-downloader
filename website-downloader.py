@@ -84,7 +84,6 @@ def create_dir(path: Path) -> None:
         log.debug("Created directory %s", path)
 
 
-
 def sanitize(url_fragment: str) -> str:
     """
     Normalize URL fragments safely.
@@ -93,16 +92,12 @@ def sanitize(url_fragment: str) -> str:
     - Keep valid relative structure intact
     """
     url_fragment = url_fragment.replace("\\", "/").strip()
-
     parsed = urlparse(url_fragment)
-
     # Normalize only the path part
     normalized_path = posixpath.normpath(parsed.path)
-
     # Prevent traversal outside root
     if normalized_path.startswith("../"):
         normalized_path = normalized_path.lstrip("../")
-
     return normalized_path
 
 
