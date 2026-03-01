@@ -4,16 +4,16 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import re
 import posixpath
 import queue
+import re
 import sys
 import threading
 import time
 from hashlib import sha256
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urljoin, urlparse, unquote
+from urllib.parse import unquote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
