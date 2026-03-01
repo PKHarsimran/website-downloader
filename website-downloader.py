@@ -4,11 +4,11 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import posixpath
 import queue
 import sys
 import threading
 import time
-import posixpath
 from hashlib import sha256
 from pathlib import Path
 from typing import Optional
