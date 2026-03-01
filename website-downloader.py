@@ -8,6 +8,7 @@ import queue
 import sys
 import threading
 import time
+import posixpath
 from hashlib import sha256
 from pathlib import Path
 from typing import Optional
@@ -83,9 +84,26 @@ def create_dir(path: Path) -> None:
         log.debug("Created directory %s", path)
 
 
+
 def sanitize(url_fragment: str) -> str:
-    """Strip back-references and Windows backslashes."""
-    return url_fragment.replace("\\", "/").replace("..", "").strip()
+    """
+    Normalize URL fragments safely.
+    - Convert backslashes to forward slashes
+    - Remove dangerous traversal attempts
+    - Keep valid relative structure intact
+    """
+    url_fragment = url_fragment.replace("\\", "/").strip()
+
+    parsed = urlparse(url_fragment)
+
+    # Normalize only the path part
+    normalized_path = posixpath.normpath(parsed.path)
+
+    # Prevent traversal outside root
+    if normalized_path.startswith("../"):
+        normalized_path = normalized_path.lstrip("../")
+
+    return normalized_path
 
 
 NON_FETCHABLE_SCHEMES = {"mailto", "tel", "sms", "javascript", "data", "geo", "blob"}
