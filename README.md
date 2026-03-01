@@ -49,17 +49,21 @@ python website-downloader.py \
 
 ## 🛠️ Libraries Used
 
-| Library | Emoji | Purpose in this project |
-|---------|-------|-------------------------|
-| **requests** + **urllib3.Retry** | 🌐 | High-level HTTP client with automatic retry / back-off for flaky hosts |
-| **BeautifulSoup (bs4)** | 🍜 | Parses downloaded HTML and extracts every `<a>`, `<img>`, `<script>`, and `<link>` |
-| **argparse** | 🛠️ | Powers the modern CLI (`--url`, `--destination`, `--max-pages`, `--threads`, …) |
-| **logging** | 📝 | Dual console / file logging with colour + crawl-time stats |
-| **threading** & **queue** | ⚙️ | Lightweight thread-pool that streams images/CSS/JS concurrently |
-| **pathlib** & **os** | 📂 | Cross-platform file-system helpers (`Path` magic, directory creation, etc.) |
-| **time** | ⏱️ | Measures per-page latency and total crawl duration |
-| **urllib.parse** | 🔗 | Safely joins / analyses URLs and rewrites them to local relative paths |
-| **sys** | 🖥️ | Directs log output to `stdout` and handles graceful interrupts (`Ctrl-C`) |
+| Library | Purpose |
+|----------|----------|
+| **requests** + **urllib3.Retry** | HTTP client with automatic retry, backoff, and persistent session handling |
+| **BeautifulSoup (bs4)** | Parses HTML and extracts `<a>`, `<img>`, `<script>`, and `<link>` elements |
+| **argparse** | Provides structured CLI argument parsing and validation |
+| **logging** | Dual console + file logging with crawl progress and summary metrics |
+| **threading** & **queue** | Concurrent asset downloading via lightweight worker pool |
+| **pathlib** & **os** | Cross-platform filesystem management and safe directory creation |
+| **urllib.parse** | URL parsing, normalization, and safe internal link rewriting |
+| **hashlib (sha256)** | Generates stable hashes for long filenames and query-string collisions |
+| **posixpath** | Normalizes URL paths while preventing traversal |
+| **time** | Measures crawl duration and per-page performance |
+| **sys** | Handles CLI exit codes and stream output management |
+| **re** | Normalizes path segments and collapses malformed multi-dot filenames |
+
 ## 🗂️ Project Structure
 
 | Path | What it is | Key features |
