@@ -1,12 +1,12 @@
 # 🌐 Website Downloader CLI  
+
 [![CI – Website Downloader](https://github.com/PKHarsimran/website-downloader/actions/workflows/python-app.yml/badge.svg)](https://github.com/PKHarsimran/website-downloader/actions/workflows/python-app.yml)
 [![Lint & Style](https://github.com/PKHarsimran/website-downloader/actions/workflows/lint.yml/badge.svg)](https://github.com/PKHarsimran/website-downloader/actions/workflows/lint.yml)
-[![Automatic Dependency Submission](https://github.com/PKHarsimran/website-downloader/actions/workflows/dependency-graph/auto-submission/badge.svg)](https://github.com/PKHarsimran/website-downloader/actions/workflows/dependency-graph/auto-submission)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Code style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-Website Downloader CLI is a **tiny, pure-Python** site-mirroring tool that lets you grab a complete, browsable offline copy of any publicly reachable website:
+Website Downloader CLI is a lightweight, pure-Python site mirroring tool that creates a fully browsable offline copy of any publicly accessible website.
 
 * Recursively crawls every same-origin link (including “pretty” `/about/` URLs)
 * Downloads **all** assets (images, CSS, JS, …)
@@ -16,6 +16,14 @@ Website Downloader CLI is a **tiny, pure-Python** site-mirroring tool that lets 
 * Handles extremely long filenames safely via hashing and graceful fallbacks
 
 > Perfect for web archiving, pentesting labs, long flights, or just poking around a site without an internet connection.
+
+
+## ❤️ Support This Project
+
+If you find this tool useful, consider supporting the project:
+
+[Donate via
+PayPal](https://www.paypal.com/donate/?business=MVEWG3QAX6UBC&no_recurring=1&item_name=Github+Project+-+Website+downloader&currency_code=CAD)
 
 ---
 
@@ -86,6 +94,15 @@ Improved error handling, logging, and fallback mechanisms for failed writes.
 The crawler now safely skips `mailto:`, `tel:`, `javascript:`, and `data:` links instead of trying to download them.  
 This prevents `requests.exceptions.InvalidSchema: No connection adapters were found` errors and keeps those links intact in saved HTML.
 
+✅ Improved Path Normalization
+-   Decodes URL-encoded segments (`%20` → space)
+-   Trims unnecessary whitespace
+-   Collapses accidental multi-dot filenames (`file....jpg` →
+    `file.jpg`)
+-   Preserves traversal protection and hashing safeguards
+
+------------------------------------------------------------------------
+
 
 ## 🤝 Contributing
 
@@ -94,8 +111,3 @@ Contributions are welcome! Please open an issue or submit a pull request for any
 ## 📜 License
 
 This project is licensed under the MIT License.
-
-## ❤️ Support This Project
-
-[![Donate](https://img.shields.io/badge/Donate-PayPal-blue)](https://www.paypal.com/donate/?business=MVEWG3QAX6UBC&no_recurring=1&item_name=Github+Project+-+Website+downloader&currency_code=CAD)
-
