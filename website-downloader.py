@@ -144,7 +144,7 @@ def _sanitize_segment(segment: str) -> str:
     segment = unquote(segment).strip()
     segment = _MULTI_DOTS_RE.sub(".", segment)
     return segment
-    
+
 
 def _shorten_segment(segment: str, limit: int = MAX_SEG_LEN) -> str:
     """
