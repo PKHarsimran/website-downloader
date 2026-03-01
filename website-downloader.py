@@ -6,13 +6,14 @@ import logging
 import os
 import posixpath
 import queue
+import re
 import sys
 import threading
 import time
 from hashlib import sha256
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -26,8 +27,19 @@ from urllib3.util import Retry
 LOG_FMT = "%(asctime)s | %(levelname)-8s | %(threadName)s | %(message)s"
 
 DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) "
-    "Gecko/20100101 Firefox/128.0"
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/122.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;"
+        "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
 }
 
 TIMEOUT = 15  # seconds
@@ -36,7 +48,7 @@ CHUNK_SIZE = 8192  # bytes
 # Conservative margins under common OS limits (~255–260 bytes)
 MAX_PATH_LEN = 240
 MAX_SEG_LEN = 120
-
+_MULTI_DOTS_RE = re.compile(r"\.{3,}")  # collapse 3+ dots to single dot
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -122,6 +134,18 @@ def is_internal(link: str, root_netloc: str) -> bool:
     return not parsed.netloc or parsed.netloc == root_netloc
 
 
+def _sanitize_segment(segment: str) -> str:
+    """
+    Sanitize a single path segment:
+    - URL decode
+    - Strip whitespace
+    - Collapse accidental multi-dots
+    """
+    segment = unquote(segment).strip()
+    segment = _MULTI_DOTS_RE.sub(".", segment)
+    return segment
+
+
 def _shorten_segment(segment: str, limit: int = MAX_SEG_LEN) -> str:
     """
     Shorten a single path segment if over limit.
@@ -160,8 +184,9 @@ def to_local_path(parsed: urlparse, site_root: Path) -> Path:
         p = Path(rel)
         rel = str(p.with_name(f"{p.stem}-q{qh}{p.suffix}"))
 
-    # Shorten individual segments
+    # Sanitize and shorten individual segments
     parts = Path(rel).parts
+    parts = tuple(_sanitize_segment(seg) for seg in parts)
     parts = tuple(_shorten_segment(seg, MAX_SEG_LEN) for seg in parts)
     local_path = site_root / Path(*parts)
 
