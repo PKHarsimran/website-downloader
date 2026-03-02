@@ -1,0 +1,120 @@
+name: 🌐 Website Downloader Test Suite
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "Target website URL"
+        required: true
+        default: "https://example.com"
+      max_pages:
+        description: "Maximum pages to crawl"
+        required: false
+        default: "5"
+      threads:
+        description: "Number of download threads"
+        required: false
+        default: "4"
+
+jobs:
+  mirror-test:
+    name: 🧪 Run Downloader & Generate Report
+    runs-on: ubuntu-latest
+
+    steps:
+      # -------------------------------------------------
+      # Checkout
+      # -------------------------------------------------
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------
+      # Setup Python
+      # -------------------------------------------------
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # -------------------------------------------------
+      # Install Dependencies
+      # -------------------------------------------------
+      - name: 📦 Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install requests beautifulsoup4
+
+      # -------------------------------------------------
+      # Run Downloader
+      # -------------------------------------------------
+      - name: 🚀 Run Website Downloader
+        run: |
+          echo "Starting crawl..."
+          python website-downloader.py \
+            --url "${{ github.event.inputs.target_url }}" \
+            --max-pages ${{ github.event.inputs.max_pages }} \
+            --threads ${{ github.event.inputs.threads }}
+
+      # -------------------------------------------------
+      # Generate Crawl Statistics
+      # -------------------------------------------------
+      - name: 📊 Generate Crawl Statistics
+        id: stats
+        run: |
+          echo "Analyzing output..."
+
+          HTML_COUNT=$(find . -type f -name "*.html" | wc -l)
+          CSS_COUNT=$(find . -type f -name "*.css" | wc -l)
+          JS_COUNT=$(find . -type f -name "*.js" | wc -l)
+          IMG_COUNT=$(find . -type f \( -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.webp" -o -name "*.gif" \) | wc -l)
+
+          TOTAL_FILES=$(find . -type f | wc -l)
+
+          echo "html_count=$HTML_COUNT" >> $GITHUB_OUTPUT
+          echo "css_count=$CSS_COUNT" >> $GITHUB_OUTPUT
+          echo "js_count=$JS_COUNT" >> $GITHUB_OUTPUT
+          echo "img_count=$IMG_COUNT" >> $GITHUB_OUTPUT
+          echo "total_files=$TOTAL_FILES" >> $GITHUB_OUTPUT
+
+      # -------------------------------------------------
+      # Detect External Links Remaining
+      # -------------------------------------------------
+      - name: 🔎 Detect External References
+        id: external
+        run: |
+          EXTERNAL_COUNT=$(grep -rhoE "https?://[^\"']+" . --include="*.html" | wc -l || true)
+          echo "external_refs=$EXTERNAL_COUNT" >> $GITHUB_OUTPUT
+
+      # -------------------------------------------------
+      # Create GitHub Summary
+      # -------------------------------------------------
+      - name: 📝 Publish Crawl Summary
+        run: |
+          echo "## 🌐 Website Downloader Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Target URL:** \`${{ github.event.inputs.target_url }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Download Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "- HTML files: **${{ steps.stats.outputs.html_count }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- CSS files: **${{ steps.stats.outputs.css_count }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- JS files: **${{ steps.stats.outputs.js_count }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- Images: **${{ steps.stats.outputs.img_count }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- Total files: **${{ steps.stats.outputs.total_files }}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔎 External References Remaining" >> $GITHUB_STEP_SUMMARY
+          echo "- External links found in HTML: **${{ steps.external.outputs.external_refs }}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Workflow completed successfully._" >> $GITHUB_STEP_SUMMARY
+
+      # -------------------------------------------------
+      # Upload Artifact
+      # -------------------------------------------------
+      - name: 📦 Upload Mirrored Site Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirrored-site
+          path: |
+            */
+            !.github/
+            !*.py
+            !*.md
