@@ -278,7 +278,11 @@ def rewrite_links(
         attr = "href" if tag.name in {"a", "link"} else "src"
         if not tag.has_attr(attr):
             continue
-        original = sanitize(tag[attr])
+        original = tag[attr].strip()
+        # Handle protocol-relative URLs
+        if original.startswith("//"):
+            parsed_page = urlparse(page_url)
+            original = f"{parsed_page.scheme}:{original}"
         if (
             original.startswith("#")
             or is_non_fetchable(original)
@@ -346,7 +350,11 @@ def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None
             link = tag.get("src") or tag.get("href")
             if not link:
                 continue
-            link = sanitize(link)
+            link = link.strip()
+            # Handle protocol-relative URLs like //cdn.domain.com/file.css
+            if link.startswith("//"):
+                parsed_page = urlparse(page_url)
+                link = f"{parsed_page.scheme}:{link}"
             if link.startswith("#") or is_non_fetchable(link) or not is_httpish(link):
                 continue
             abs_url = urljoin(page_url, link)
