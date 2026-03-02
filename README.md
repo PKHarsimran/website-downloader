@@ -78,32 +78,39 @@ python website-downloader.py \
 
 ## ✨ Recent Improvements
 
-✅ Type Conversion Fix
-Fixed a TypeError caused by int(..., 10) when non-string arguments were passed.
+### ✅ Type Conversion Fix
+Resolved a `TypeError` caused by `int(..., 10)` when non-string arguments were passed, improving input robustness.
 
-✅ Safer Path Handling
-Added intelligent path shortening and hashing for long filenames to prevent
-OSError: [Errno 36] File name too long errors.
+### ✅ Safer Path Handling
+Added intelligent path shortening and hashing for long filenames to prevent  
+`OSError: [Errno 36] File name too long` errors across operating systems.
 
-✅ Improved CLI Experience
-Rebuilt argument parsing with argparse for cleaner syntax and validation.
+### ✅ Improved CLI Experience
+Rebuilt argument parsing using `argparse` for cleaner syntax, validation, and better error messages.
 
-✅ Code Quality & Linting
-Applied Black + Flake8 formatting; the project now passes all CI lint checks.
+### ✅ Code Quality & Linting
+Applied Black + Flake8 formatting. The project now passes all CI lint checks.
 
-✅ Logging & Stability
-Improved error handling, logging, and fallback mechanisms for failed writes.
+### ✅ Logging & Stability
+Improved structured logging, error handling, retry strategy, and safe write fallbacks for better crawl resilience.
 
-✅ Skip Non-Fetchable Schemes  
-The crawler now safely skips `mailto:`, `tel:`, `javascript:`, and `data:` links instead of trying to download them.  
-This prevents `requests.exceptions.InvalidSchema: No connection adapters were found` errors and keeps those links intact in saved HTML.
+### ✅ Skip Non-Fetchable Schemes
+The crawler now safely skips `mailto:`, `tel:`, `javascript:`, `data:`, `geo:`, and `blob:` links instead of attempting to download them.  
+This prevents `requests.exceptions.InvalidSchema` errors while preserving those links in saved HTML.
 
-✅ Improved Path Normalization
--   Decodes URL-encoded segments (`%20` → space)
--   Trims unnecessary whitespace
--   Collapses accidental multi-dot filenames (`file....jpg` →
-    `file.jpg`)
--   Preserves traversal protection and hashing safeguards
+### ✅ Improved URL Resolution (CDN-Safe Handling)
+Fixed incorrect URL normalization that caused malformed asset paths and 404 errors.
+
+- URLs are now resolved before sanitization  
+- Protocol-relative URLs (`//cdn.domain.com/file.css`) are correctly converted to `https://`  
+- Prevents broken paths like `https://example.com/npm/...`  
+- Significantly reduces false asset download failures on modern CDN-heavy websites  
+
+### ✅ Enhanced Path Normalization
+- Decodes URL-encoded segments (`%20` → space)  
+- Trims unnecessary whitespace  
+- Collapses accidental multi-dot filenames (`file....jpg` → `file.jpg`)  
+- Preserves traversal protection and hashing safeguards  
 
 ------------------------------------------------------------------------
 
