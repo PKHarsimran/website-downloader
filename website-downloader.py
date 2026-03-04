@@ -49,6 +49,7 @@ CHUNK_SIZE = 8192  # bytes
 MAX_PATH_LEN = 240
 MAX_SEG_LEN = 120
 _MULTI_DOTS_RE = re.compile(r"\.{3,}")  # collapse 3+ dots to single dot
+CSS_URL_RE = re.compile(r"url\((.*?)\)")
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -234,7 +235,7 @@ def fetch_html(url: str) -> Optional[BeautifulSoup]:
         return None
 
 
-def fetch_binary(url: str, dest: Path) -> None:
+def fetch_binary(url: str, dest: Path, download_q=None) -> None:
     """Stream url to dest unless it already exists. Safe against long paths."""
     if dest.exists():
         return
@@ -247,6 +248,21 @@ def fetch_binary(url: str, dest: Path) -> None:
                 for chunk in resp.iter_content(CHUNK_SIZE):
                     fh.write(chunk)
             log.debug("Saved resource -> %s", dest)
+            # -------------------------------------------------
+            # Parse CSS for additional assets (fonts/images)
+            # -------------------------------------------------
+            if dest.suffix == ".css" and download_q is not None:
+                try:
+                    css_text = dest.read_text(errors="ignore")
+                    assets = extract_css_assets(css_text)
+                    for asset in assets:
+                        abs_asset = urljoin(url, asset)
+                        parsed = urlparse(abs_asset)
+                        asset_name = parsed.path.split("/")[-1] or "asset"
+                        asset_path = dest.parent / asset_name
+                        download_q.put((abs_asset, asset_path))
+                except Exception:
+                    pass
         except OSError as exc:
             # Fallback to hashed leaf if OS rejects path
             log.warning("Binary write failed for %s: %s. Using fallback.", dest, exc)
@@ -264,25 +280,41 @@ def fetch_binary(url: str, dest: Path) -> None:
         log.error("Failed to save %s – %s", url, exc)
 
 
+def extract_css_assets(css_text: str):
+    """Extract asset URLs from CSS url(...) patterns."""
+    matches = CSS_URL_RE.findall(css_text)
+    results = []
+    for m in matches:
+        url = m.strip().strip("'\"")
+        if not url or url.startswith("data:") or url.startswith("javascript:"):
+            continue
+        results.append(url)
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Link rewriting
 # ---------------------------------------------------------------------------
 
 
 def rewrite_links(
-    soup: BeautifulSoup, page_url: str, site_root: Path, page_dir: Path
+    soup: BeautifulSoup,
+    page_url: str,
+    site_root: Path,
+    page_dir: Path,
+    download_external_assets: bool = False,
 ) -> None:
-    """Rewrite internal links to local relative paths under site_root."""
+    """Rewrite links so internal + optional CDN assets point to local files."""
     root_netloc = urlparse(page_url).netloc
     for tag in soup.find_all(["a", "img", "script", "link"]):
         attr = "href" if tag.name in {"a", "link"} else "src"
         if not tag.has_attr(attr):
             continue
         original = tag[attr].strip()
-        # Handle protocol-relative URLs
         if original.startswith("//"):
             parsed_page = urlparse(page_url)
             original = f"{parsed_page.scheme}:{original}"
+
         if (
             original.startswith("#")
             or is_non_fetchable(original)
@@ -290,13 +322,18 @@ def rewrite_links(
         ):
             continue
         abs_url = urljoin(page_url, original)
-        if not is_internal(abs_url, root_netloc):
-            continue  # external – leave untouched
-        local_path = to_local_path(urlparse(abs_url), site_root)
+        parsed = urlparse(abs_url)
+        is_ext = not is_internal(abs_url, root_netloc)
+        if is_ext and not download_external_assets:
+            continue
+        if is_ext:
+            cdn_path = parsed.path.lstrip("/") or "index"
+            local_path = site_root / "cdn" / parsed.netloc / cdn_path
+        else:
+            local_path = to_local_path(parsed, site_root)
         try:
             tag[attr] = os.path.relpath(local_path, page_dir)
         except ValueError:
-            # Different drives on Windows, etc.
             tag[attr] = str(local_path)
 
 
@@ -305,7 +342,13 @@ def rewrite_links(
 # ---------------------------------------------------------------------------
 
 
-def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None:
+def crawl_site(
+    start_url: str,
+    root: Path,
+    max_pages: int,
+    threads: int,
+    download_external_assets: bool = False,
+) -> None:
     """Breadth-first crawl limited to max_pages. Downloads assets via workers."""
     q_pages: queue.Queue[str] = queue.Queue()
     q_pages.put(start_url)
@@ -322,7 +365,7 @@ def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None
                 log.debug("Skip non-fetchable: %s", url)
                 download_q.task_done()
                 continue
-            fetch_binary(url, dest)
+            fetch_binary(url, dest, download_q)
             download_q.task_done()
 
     workers: list[threading.Thread] = []
@@ -359,10 +402,14 @@ def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None
                 continue
             abs_url = urljoin(page_url, link)
             parsed = urlparse(abs_url)
-            if not is_internal(abs_url, root_netloc):
+            is_ext = not is_internal(abs_url, root_netloc)
+            if is_ext and not download_external_assets:
                 continue
-
-            dest_path = to_local_path(parsed, root)
+            if is_ext:
+                cdn_path = parsed.path.lstrip("/") or "index"
+                dest_path = root / "cdn" / parsed.netloc / cdn_path
+            else:
+                dest_path = to_local_path(parsed, root)
             # HTML?
             if parsed.path.endswith("/") or not Path(parsed.path).suffix:
                 if abs_url not in seen_pages and abs_url not in list(
@@ -375,7 +422,13 @@ def crawl_site(start_url: str, root: Path, max_pages: int, threads: int) -> None
         # Save current page
         local_path = to_local_path(urlparse(page_url), root)
         create_dir(local_path.parent)
-        rewrite_links(soup, page_url, root, local_path.parent)
+        rewrite_links(
+            soup,
+            page_url,
+            root,
+            local_path.parent,
+            download_external_assets,
+        )
         html = soup.prettify()
         final_path = safe_write_text(local_path, html, encoding="utf-8")
         log.debug("Saved page %s", final_path)
@@ -435,6 +488,11 @@ def parse_args() -> argparse.Namespace:
         default=6,
         help="Number of concurrent download workers.",
     )
+    p.add_argument(
+        "--download-external-assets",
+        action="store_true",
+        help="Download external CDN/static assets and rewrite links for offline use.",
+    )
     return p.parse_args()
 
 
@@ -449,4 +507,10 @@ if __name__ == "__main__":
 
     host = args.url
     root = make_root(args.url, args.destination)
-    crawl_site(host, root, args.max_pages, args.threads)
+    crawl_site(
+        host,
+        root,
+        args.max_pages,
+        args.threads,
+        args.download_external_assets,
+    )
