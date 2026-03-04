@@ -7,14 +7,21 @@ on:
         description: "Target website URL"
         required: true
         default: "https://example.com"
+
       max_pages:
         description: "Maximum pages to crawl"
         required: false
         default: "5"
+
       threads:
         description: "Number of download threads"
         required: false
         default: "4"
+
+      download_external_assets:
+        description: "Download CDN/external assets"
+        required: false
+        default: "true"
 
 jobs:
   mirror-test:
@@ -50,10 +57,18 @@ jobs:
       - name: 🚀 Run Website Downloader
         run: |
           echo "Starting crawl..."
+
+          EXTRA=""
+
+          if [ "${{ github.event.inputs.download_external_assets }}" = "true" ]; then
+            EXTRA="--download-external-assets"
+          fi
+
           python website-downloader.py \
             --url "${{ github.event.inputs.target_url }}" \
             --max-pages ${{ github.event.inputs.max_pages }} \
-            --threads ${{ github.event.inputs.threads }}
+            --threads ${{ github.event.inputs.threads }} \
+            $EXTRA
 
       # -------------------------------------------------
       # Generate Crawl Statistics
@@ -66,7 +81,24 @@ jobs:
           HTML_COUNT=$(find . -type f -name "*.html" | wc -l)
           CSS_COUNT=$(find . -type f -name "*.css" | wc -l)
           JS_COUNT=$(find . -type f -name "*.js" | wc -l)
-          IMG_COUNT=$(find . -type f \( -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.webp" -o -name "*.gif" \) | wc -l)
+
+          IMG_COUNT=$(find . -type f \( \
+            -name "*.png" -o \
+            -name "*.jpg" -o \
+            -name "*.jpeg" -o \
+            -name "*.webp" -o \
+            -name "*.gif" -o \
+            -name "*.svg" \
+          \) | wc -l)
+
+          FONT_COUNT=$(find . -type f \( \
+            -name "*.woff" -o \
+            -name "*.woff2" -o \
+            -name "*.ttf" -o \
+            -name "*.otf" \
+          \) | wc -l)
+
+          CDN_FILES=$(find ./cdn -type f 2>/dev/null | wc -l || echo 0)
 
           TOTAL_FILES=$(find . -type f | wc -l)
 
@@ -74,6 +106,8 @@ jobs:
           echo "css_count=$CSS_COUNT" >> $GITHUB_OUTPUT
           echo "js_count=$JS_COUNT" >> $GITHUB_OUTPUT
           echo "img_count=$IMG_COUNT" >> $GITHUB_OUTPUT
+          echo "font_count=$FONT_COUNT" >> $GITHUB_OUTPUT
+          echo "cdn_files=$CDN_FILES" >> $GITHUB_OUTPUT
           echo "total_files=$TOTAL_FILES" >> $GITHUB_OUTPUT
 
       # -------------------------------------------------
@@ -94,16 +128,27 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Target URL:** \`${{ github.event.inputs.target_url }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### ⚙️ Settings" >> $GITHUB_STEP_SUMMARY
+          echo "- Max Pages: **${{ github.event.inputs.max_pages }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- Threads: **${{ github.event.inputs.threads }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- Download CDN Assets: **${{ github.event.inputs.download_external_assets }}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
           echo "### 📊 Download Statistics" >> $GITHUB_STEP_SUMMARY
           echo "- HTML files: **${{ steps.stats.outputs.html_count }}**" >> $GITHUB_STEP_SUMMARY
           echo "- CSS files: **${{ steps.stats.outputs.css_count }}**" >> $GITHUB_STEP_SUMMARY
           echo "- JS files: **${{ steps.stats.outputs.js_count }}**" >> $GITHUB_STEP_SUMMARY
           echo "- Images: **${{ steps.stats.outputs.img_count }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- Fonts: **${{ steps.stats.outputs.font_count }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- CDN Assets: **${{ steps.stats.outputs.cdn_files }}**" >> $GITHUB_STEP_SUMMARY
           echo "- Total files: **${{ steps.stats.outputs.total_files }}**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
           echo "### 🔎 External References Remaining" >> $GITHUB_STEP_SUMMARY
           echo "- External links found in HTML: **${{ steps.external.outputs.external_refs }}**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
           echo "_Workflow completed successfully._" >> $GITHUB_STEP_SUMMARY
 
       # -------------------------------------------------
