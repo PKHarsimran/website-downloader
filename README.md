@@ -9,12 +9,15 @@
 Website Downloader CLI is a lightweight, pure-Python site mirroring tool that creates a fully browsable offline copy of any publicly accessible website.
 
 * Recursively crawls every same-origin link (including “pretty” `/about/` URLs)
-* Downloads **all** assets (images, CSS, JS, …)
-* Rewrites internal links so pages open flawlessly from your local disk
-* Streams files concurrently with automatic retry / back-off
-* Generates a clean, flat directory tree (`example_com/index.html`, `example_com/about/index.html`, …)
-* Handles extremely long filenames safely via hashing and graceful fallbacks
-
+* Downloads **all internal assets** (images, CSS, JS, fonts, etc.)
+* Optional support for downloading **external CDN assets** for complete offline mirroring
+* Rewrites links so pages load correctly from your local filesystem
+* Streams files concurrently using worker threads for faster downloads
+* Uses automatic retry and back-off for unstable connections
+* Generates a clean, organized directory structure (`example_com/index.html`, `example_com/about/index.html`, …)
+* Stores CDN resources under a structured path (`cdn/<domain>/...`)
+* Safely handles extremely long filenames using hashing and graceful fallbacks
+* Skips non-fetchable schemes (`mailto:`, `tel:`, `data:`, `javascript:`) to avoid crawler errors
 > Perfect for web archiving, pentesting labs, long flights, or just poking around a site without an internet connection.
 
 
@@ -79,38 +82,55 @@ python website-downloader.py \
 ## ✨ Recent Improvements
 
 ### ✅ Type Conversion Fix
-Resolved a `TypeError` caused by `int(..., 10)` when non-string arguments were passed, improving input robustness.
+Resolved a `TypeError` caused by `int(..., 10)` when non-string arguments were passed, improving input robustness and CLI reliability.
 
 ### ✅ Safer Path Handling
 Added intelligent path shortening and hashing for long filenames to prevent  
-`OSError: [Errno 36] File name too long` errors across operating systems.
+`OSError: [Errno 36] File name too long` errors across different operating systems.
 
 ### ✅ Improved CLI Experience
-Rebuilt argument parsing using `argparse` for cleaner syntax, validation, and better error messages.
+Rebuilt argument parsing using `argparse` for cleaner syntax, better validation, and clearer error messages.
 
 ### ✅ Code Quality & Linting
-Applied Black + Flake8 formatting. The project now passes all CI lint checks.
+Standardized formatting using **Black**, **isort**, and **Ruff**.  
+The project now passes all CI formatting and lint checks.
 
 ### ✅ Logging & Stability
-Improved structured logging, error handling, retry strategy, and safe write fallbacks for better crawl resilience.
+Improved structured logging, retry handling, and safe-write fallbacks to make crawls more resilient against network failures and filesystem issues.
 
 ### ✅ Skip Non-Fetchable Schemes
 The crawler now safely skips `mailto:`, `tel:`, `javascript:`, `data:`, `geo:`, and `blob:` links instead of attempting to download them.  
 This prevents `requests.exceptions.InvalidSchema` errors while preserving those links in saved HTML.
 
 ### ✅ Improved URL Resolution (CDN-Safe Handling)
-Fixed incorrect URL normalization that caused malformed asset paths and 404 errors.
+Fixed incorrect URL normalization that previously caused malformed asset paths and 404 errors.
 
-- URLs are now resolved before sanitization  
+- URLs are resolved before sanitization  
 - Protocol-relative URLs (`//cdn.domain.com/file.css`) are correctly converted to `https://`  
 - Prevents broken paths like `https://example.com/npm/...`  
-- Significantly reduces false asset download failures on modern CDN-heavy websites  
+- Reduces asset download failures on modern CDN-heavy websites
+
+### ✅ Optional CDN Asset Downloading
+Added a new CLI option to download external static assets for complete offline site mirroring.
+`--download-external-assets`
+
+When enabled:
+
+- External assets such as CDN **CSS, JS, fonts, and images** are downloaded
+- Files are stored under:
+`cdn/<domain>/<path>`
+
+- HTML references are automatically rewritten to use local copies
+
+This allows mirrored websites to function fully offline even when they rely on external CDNs.
 
 ### ✅ Enhanced Path Normalization
-- Decodes URL-encoded segments (`%20` → space)  
-- Trims unnecessary whitespace  
-- Collapses accidental multi-dot filenames (`file....jpg` → `file.jpg`)  
-- Preserves traversal protection and hashing safeguards  
+Improved filename normalization to reduce filesystem edge cases:
+
+- Decodes URL-encoded segments (`%20` → space)
+- Trims unnecessary whitespace
+- Collapses accidental multi-dot filenames (`file....jpg` → `file.jpg`)
+- Maintains traversal protection and hashing safeguards
 
 ------------------------------------------------------------------------
 
