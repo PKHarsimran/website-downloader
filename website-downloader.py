@@ -286,11 +286,7 @@ def extract_css_assets(css_text: str):
     results = []
     for m in matches:
         url = m.strip().strip("'\"")
-        if (
-            not url
-            or url.startswith("data:")
-            or url.startswith("javascript:")
-        ):
+        if not url or url.startswith("data:") or url.startswith("javascript:"):
             continue
         results.append(url)
     return results
@@ -346,7 +342,13 @@ def rewrite_links(
 # ---------------------------------------------------------------------------
 
 
-def crawl_site(start_url: str, root: Path, max_pages: int, threads: int, download_external_assets: bool = False,) -> None:
+def crawl_site(
+    start_url: str,
+    root: Path,
+    max_pages: int,
+    threads: int,
+    download_external_assets: bool = False,
+) -> None:
     """Breadth-first crawl limited to max_pages. Downloads assets via workers."""
     q_pages: queue.Queue[str] = queue.Queue()
     q_pages.put(start_url)
