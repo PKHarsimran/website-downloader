@@ -410,8 +410,10 @@ def crawl_site(
                 dest_path = root / "cdn" / parsed.netloc / cdn_path
             else:
                 dest_path = to_local_path(parsed, root)
-            # HTML?
-            if parsed.path.endswith("/") or not Path(parsed.path).suffix:
+            # HTML pages should only be crawled if they are internal
+            if not is_ext and (
+                parsed.path.endswith("/") or not Path(parsed.path).suffix
+            ):
                 if abs_url not in seen_pages and abs_url not in list(
                     q_pages.queue
                 ):  # type: ignore[arg-type]
