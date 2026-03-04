@@ -49,6 +49,7 @@ CHUNK_SIZE = 8192  # bytes
 MAX_PATH_LEN = 240
 MAX_SEG_LEN = 120
 _MULTI_DOTS_RE = re.compile(r"\.{3,}")  # collapse 3+ dots to single dot
+CSS_URL_RE = re.compile(r"url\((.*?)\)")
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -234,7 +235,7 @@ def fetch_html(url: str) -> Optional[BeautifulSoup]:
         return None
 
 
-def fetch_binary(url: str, dest: Path) -> None:
+def fetch_binary(url: str, dest: Path, download_q=None) -> None:
     """Stream url to dest unless it already exists. Safe against long paths."""
     if dest.exists():
         return
@@ -247,6 +248,19 @@ def fetch_binary(url: str, dest: Path) -> None:
                 for chunk in resp.iter_content(CHUNK_SIZE):
                     fh.write(chunk)
             log.debug("Saved resource -> %s", dest)
+            # Parse CSS for additional assets (fonts, images)
+    if dest.suffix == ".css" and download_q is not None:
+    try:
+        css_text = dest.read_text(errors="ignore")
+        assets = extract_css_assets(css_text)
+        for asset in assets:
+            abs_asset = urljoin(url, asset)
+            parsed = urlparse(abs_asset)
+            asset_name = parsed.path.split("/")[-1] or "asset"
+            asset_path = dest.parent / asset_name
+            download_q.put((abs_asset, asset_path))
+    except Exception:
+        pass
         except OSError as exc:
             # Fallback to hashed leaf if OS rejects path
             log.warning("Binary write failed for %s: %s. Using fallback.", dest, exc)
@@ -262,6 +276,22 @@ def fetch_binary(url: str, dest: Path) -> None:
             log.debug("Saved resource (fallback) -> %s", fallback)
     except Exception as exc:  # noqa: BLE001
         log.error("Failed to save %s – %s", url, exc)
+
+
+def extract_css_assets(css_text: str):
+    """Extract asset URLs from CSS url(...) patterns."""
+    matches = CSS_URL_RE.findall(css_text)
+    results = []
+    for m in matches:
+        url = m.strip().strip("'\"")
+        if (
+            not url
+            or url.startswith("data:")
+            or url.startswith("javascript:")
+        ):
+            continue
+        results.append(url)
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +361,7 @@ def crawl_site(start_url: str, root: Path, max_pages: int, threads: int, downloa
                 log.debug("Skip non-fetchable: %s", url)
                 download_q.task_done()
                 continue
-            fetch_binary(url, dest)
+            fetch_binary(url, dest, download_q)
             download_q.task_done()
 
     workers: list[threading.Thread] = []
