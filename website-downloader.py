@@ -248,19 +248,21 @@ def fetch_binary(url: str, dest: Path, download_q=None) -> None:
                 for chunk in resp.iter_content(CHUNK_SIZE):
                     fh.write(chunk)
             log.debug("Saved resource -> %s", dest)
-            # Parse CSS for additional assets (fonts, images)
-    if dest.suffix == ".css" and download_q is not None:
-    try:
-        css_text = dest.read_text(errors="ignore")
-        assets = extract_css_assets(css_text)
-        for asset in assets:
-            abs_asset = urljoin(url, asset)
-            parsed = urlparse(abs_asset)
-            asset_name = parsed.path.split("/")[-1] or "asset"
-            asset_path = dest.parent / asset_name
-            download_q.put((abs_asset, asset_path))
-    except Exception:
-        pass
+            # -------------------------------------------------
+            # Parse CSS for additional assets (fonts/images)
+            # -------------------------------------------------
+            if dest.suffix == ".css" and download_q is not None:
+                try:
+                    css_text = dest.read_text(errors="ignore")
+                    assets = extract_css_assets(css_text)
+                    for asset in assets:
+                        abs_asset = urljoin(url, asset)
+                        parsed = urlparse(abs_asset)
+                        asset_name = parsed.path.split("/")[-1] or "asset"
+                        asset_path = dest.parent / asset_name
+                        download_q.put((abs_asset, asset_path))
+                except Exception:
+                    pass
         except OSError as exc:
             # Fallback to hashed leaf if OS rejects path
             log.warning("Binary write failed for %s: %s. Using fallback.", dest, exc)
