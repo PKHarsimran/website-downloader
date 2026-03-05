@@ -23,8 +23,13 @@ from urllib3.util import Retry
 # Config / constants
 # ---------------------------------------------------------------------------
 
+# Consistent log format across file + console. Thread name is helpful because
+# asset downloads happen in worker threads.
 LOG_FMT = "%(asctime)s | %(levelname)-8s | %(threadName)s | %(message)s"
 
+# Extensions we treat as “static assets” worth downloading and rewriting.
+# Used in multiple places: HTML attribute rewriting, CSS url(...) rewriting,
+# JS string rewriting, and crawl-time asset detection.
 ASSET_EXTENSIONS = (
     ".css",
     ".js",
@@ -50,6 +55,13 @@ ASSET_EXTENSIONS = (
     ".mp3",
 )
 
+# Conservative JS string rewriting:
+# - JS_URL_RE: matches root-relative strings like "/assets/app.js"
+# - JS_ABS_URL_RE: matches absolute or protocol-relative strings like
+#   "https://cdn.example.com/app.js" or "//cdn.example.com/app.js"
+#
+# This is intentionally limited to common static file extensions to avoid
+# rewriting API endpoints or dynamic URLs that could break functionality.
 JS_URL_RE = re.compile(
     r"""["'](/[^"']+\.(?:png|jpg|jpeg|gif|svg|webp|avif|ico|css|js|mjs|map|woff|woff2|ttf|eot|json|wasm|webmanifest)(?:\?[^"']*)?)["']""",
     re.IGNORECASE,
@@ -60,6 +72,7 @@ JS_ABS_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Default headers can help with sites that block "non-browser" clients.
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -76,20 +89,32 @@ DEFAULT_HEADERS = {
     "Upgrade-Insecure-Requests": "1",
 }
 
+# Network timeouts + streaming chunk size for binary downloads.
 TIMEOUT = 15  # seconds
 CHUNK_SIZE = 8192  # bytes
 
-# Conservative margins under common OS limits (~255–260 bytes)
+# Conservative margins under common OS limits (~255–260 bytes).
+# These protect you from “File name too long” and odd Windows path rules.
 MAX_PATH_LEN = 240
 MAX_SEG_LEN = 120
-_MULTI_DOTS_RE = re.compile(r"\.{3,}")  # collapse 3+ dots to single dot
+
+# Collapse 3+ dots ("....") down to a single dot to avoid weird filenames.
+_MULTI_DOTS_RE = re.compile(r"\.{3,}")
+
+# CSS url(...) extractor. Note: this is simple (not a full CSS parser),
+# but good enough for most sites.
 CSS_URL_RE = re.compile(r"url\(([^)]+)\)")
+
+# CSS @import extractor. Also simple-but-effective.
 CSS_IMPORT_RE = re.compile(
     r"""@import\s+(?:url\()?['"]?([^'"\);]+)['"]?\)?\s*;""",
     re.IGNORECASE,
 )
 
+# Characters that commonly cause filesystem issues, especially on Windows.
 _BAD_SEG_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1F]')
+
+# Windows reserved filenames; writing these can fail or behave badly.
 _WINDOWS_RESERVED_NAMES = {
     "CON",
     "PRN",
@@ -103,6 +128,7 @@ _WINDOWS_RESERVED_NAMES = {
 # Logging
 # ---------------------------------------------------------------------------
 
+# File logging is DEBUG to help you trace rewrites and queue behavior.
 logging.basicConfig(
     filename="web_scraper.log",
     level=logging.DEBUG,
@@ -110,28 +136,32 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
     force=True,
 )
+
+# Console logging is INFO to keep output readable while running.
 _console = logging.StreamHandler(sys.stdout)
 _console.setLevel(logging.INFO)
 _console.setFormatter(logging.Formatter(LOG_FMT, datefmt="%H:%M:%S"))
 logging.getLogger().addHandler(_console)
 log = logging.getLogger(__name__)
 
-
 # ---------------------------------------------------------------------------
 # HTTP session (retry, timeouts, custom UA)
 # ---------------------------------------------------------------------------
 
+# Shared session improves performance and keeps connection pooling.
 SESSION = requests.Session()
+
+# Retry strategy for transient issues (rate limits, 5xx). Helps stability.
 RETRY_STRAT = Retry(
     total=5,
     backoff_factor=0.5,
     status_forcelist=[429, 500, 502, 503, 504],
     allowed_methods=["GET", "HEAD"],
 )
+
 SESSION.mount("http://", HTTPAdapter(max_retries=RETRY_STRAT))
 SESSION.mount("https://", HTTPAdapter(max_retries=RETRY_STRAT))
 SESSION.headers.update(DEFAULT_HEADERS)
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -145,6 +175,8 @@ def create_dir(path: Path) -> None:
         log.debug("Created directory %s", path)
 
 
+# Schemes that are valid URLs in HTML but are not HTTP fetch targets.
+# If we try to request these, requests will throw InvalidSchema.
 NON_FETCHABLE_SCHEMES = {
     "mailto",
     "tel",
@@ -158,18 +190,33 @@ NON_FETCHABLE_SCHEMES = {
 
 
 def is_httpish(u: str) -> bool:
-    """True iff the URL is http(s) or relative (no scheme)."""
+    """
+    True iff the URL is http(s) or relative (no scheme).
+
+    Why:
+    - We only fetch http(s) resources.
+    - Relative URLs should still be handled because we can join them to base URLs.
+    """
     p = urlparse(u)
     return (p.scheme in ("http", "https")) or (p.scheme == "")
 
 
 def is_non_fetchable(u: str) -> bool:
-    """True iff the URL clearly shouldn't be fetched (mailto:, tel:, data:, ...)."""
+    """
+    True iff the URL clearly shouldn't be fetched (mailto:, tel:, data:, ...).
+    """
     p = urlparse(u)
     return p.scheme in NON_FETCHABLE_SCHEMES
 
 
 def is_internal(link: str, root_netloc: str) -> bool:
+    """
+    Decide whether `link` belongs to the same site as `root_netloc`.
+
+    Notes:
+    - Relative URLs are internal.
+    - We normalize "www." so example.com and www.example.com count as same.
+    """
     parsed = urlparse(link)
     netloc = _canonical_netloc(parsed)
 
@@ -189,15 +236,17 @@ def is_internal(link: str, root_netloc: str) -> bool:
 
 def _sanitize_segment(segment: str) -> str:
     """
-    Sanitize a single path segment:
-    - URL decode
-    - Strip whitespace
+    Sanitize a single path segment for safe writing to disk.
+
+    - URL decode (turn %20 into space, etc.)
+    - Strip whitespace / trailing dot-space combos (Windows issues)
     - Collapse accidental multi-dots
-    - Remove/replace characters that are problematic on common filesystems
-    - Neutralize '.' and '..' segments (avoid traversal)
+    - Replace illegal filesystem chars with '_'
+    - Neutralize '.' and '..' to prevent traversal-like paths
+    - Avoid Windows reserved names (CON, PRN, COM1, ...)
     """
     segment = unquote(segment).strip()
-    segment = segment.strip(" .")  # Windows: trailing dot/space are problematic
+    segment = segment.strip(" .")
     segment = _MULTI_DOTS_RE.sub(".", segment)
     segment = _BAD_SEG_CHARS_RE.sub("_", segment)
 
@@ -212,39 +261,46 @@ def _sanitize_segment(segment: str) -> str:
 
 def _shorten_segment(segment: str, limit: int = MAX_SEG_LEN) -> str:
     """
-    Shorten a single path segment if over limit.
-    Preserve extension; append a short hash to keep it unique.
+    Shorten a path segment if it exceeds a length limit.
+
+    Strategy:
+    - Keep the original extension
+    - Truncate the stem
+    - Append a short hash so different long names don't collide
     """
     if len(segment) <= limit:
         return segment
     p = Path(segment)
     stem, suffix = p.stem, p.suffix
     h = sha256(segment.encode("utf-8")).hexdigest()[:12]
-    # leave room for '-' + hash + suffix
-    keep = max(0, limit - len(suffix) - 13)
+    keep = max(0, limit - len(suffix) - 13)  # '-' + hash is 13 chars total
     return f"{stem[:keep]}-{h}{suffix}"
 
 
 def _rel_url(target: Path, base_dir: Path) -> str:
     """
-    Compute a *URL* relative path (always forward slashes), not an OS path.
+    Compute a URL-style relative path (forward slashes),
+    not an OS-specific path.
     """
     try:
         rel = os.path.relpath(target, base_dir)
     except ValueError:
+        # Happens if paths are on different drives on Windows.
         return target.as_posix()
     return Path(rel).as_posix()
 
 
 def to_local_path(parsed: ParseResult, site_root: Path) -> Path:
     """
-    Map an internal *page* URL to a local file path under site_root.
+    Map an internal *page* URL to a local HTML file under site_root.
 
-    - Adds 'index.html' where appropriate.
-    - Converts extensionless paths to '.html'.
-    - Appends a short query-hash when ?query is present to avoid collisions.
-    - Enforces per-segment and overall path length limits. If still too long,
-      hashes the leaf name.
+    Rules:
+    - "/" -> index.html
+    - "/foo/" -> /foo/index.html
+    - "/foo" (no extension) -> /foo.html
+    - query strings get a short hash to prevent collisions:
+      /page?id=1 and /page?id=2 should not overwrite each other
+    - filesystem hardening: sanitize segments, limit segment length and overall path
     """
     rel = parsed.path.lstrip("/")
     if not rel:
@@ -259,13 +315,11 @@ def to_local_path(parsed: ParseResult, site_root: Path) -> Path:
         p = Path(rel)
         rel = str(p.with_name(f"{p.stem}-q{qh}{p.suffix}"))
 
-    # Sanitize and shorten individual segments
     parts = Path(rel).parts
     parts = tuple(_sanitize_segment(seg) for seg in parts)
     parts = tuple(_shorten_segment(seg, MAX_SEG_LEN) for seg in parts)
     local_path = site_root / Path(*parts)
 
-    # If full path is still too long, hash the leaf
     if len(str(local_path)) > MAX_PATH_LEN:
         p = local_path
         h = sha256(parsed.geturl().encode("utf-8")).hexdigest()[:16]
@@ -279,7 +333,9 @@ def to_local_asset_path(parsed: ParseResult, site_root: Path) -> Path:
     """
     Map an internal *asset* URL to a local file path under site_root.
 
-    Unlike to_local_path(), this does NOT force `.html` for extensionless paths.
+    Difference vs to_local_path():
+    - We do NOT force .html for extensionless paths.
+      (Some sites serve extensionless assets, though less common.)
     """
     rel = parsed.path.lstrip("/")
     if not rel:
@@ -290,7 +346,6 @@ def to_local_asset_path(parsed: ParseResult, site_root: Path) -> Path:
     if parsed.query:
         qh = sha256(parsed.query.encode("utf-8")).hexdigest()[:10]
         p = Path(rel)
-        # keep suffix if present, otherwise keep the full name
         name = f"{p.stem}-q{qh}{p.suffix}" if p.suffix else f"{p.name}-q{qh}"
         rel = str(p.with_name(name))
 
@@ -310,7 +365,12 @@ def to_local_asset_path(parsed: ParseResult, site_root: Path) -> Path:
 
 def cdn_local_path(parsed: ParseResult, site_root: Path) -> Path:
     """
-    Map an external (CDN) URL to a local path under `site_root/cdn/<netloc>/...`.
+    Map an external (CDN) URL to a local path under:
+        site_root/cdn/<netloc>/...
+
+    Why:
+    - Keeps external host assets separated from internal assets.
+    - Avoids collisions where internal and external paths look similar.
     """
     rel = parsed.path.lstrip("/")
     if not rel:
@@ -342,8 +402,12 @@ def cdn_local_path(parsed: ParseResult, site_root: Path) -> Path:
 
 def safe_write_text(path: Path, text: str, encoding: str = "utf-8") -> Path:
     """
-    Write text to path, falling back to a hashed filename if OS rejects it
-    (e.g., filename too long). Returns the final path used.
+    Write text to path safely.
+
+    If the OS rejects the filename/path (often: path too long), we:
+    - hash the leaf name
+    - write to a fallback name
+    - return the final path used
     """
     try:
         path.write_text(text, encoding=encoding)
@@ -359,14 +423,25 @@ def safe_write_text(path: Path, text: str, encoding: str = "utf-8") -> Path:
 
 
 def normalize_url(url: str) -> str:
-    """Normalize URLs to avoid duplicates caused by fragments."""
+    """
+    Normalize URLs to avoid duplicates caused by fragments.
+
+    Example:
+    - https://site/page#section1 and https://site/page#section2
+      are the same document for our crawler.
+    """
     parsed = urlparse(url)
     clean = parsed._replace(fragment="")
     return clean.geturl()
 
 
 def _protocol_fix(url: str, base_url: str) -> str:
-    """Normalize protocol-relative URLs (//host/path) to absolute ones."""
+    """
+    Normalize protocol-relative URLs (//host/path) to absolute ones.
+
+    Browsers interpret //example.com/a.css as "use the current page scheme".
+    We do the same using base_url's scheme.
+    """
     if url.startswith("//"):
         base = urlparse(base_url)
         scheme = base.scheme or "https"
@@ -387,14 +462,22 @@ def rewrite_css_text(
     """
     Rewrite CSS url(...) and @import references to local relative paths.
 
-    - base_url: the remote URL of the CSS *context* (stylesheet URL for external CSS,
-      page URL for <style> blocks / style="" attributes).
-    - base_dir: local directory that will contain the CSS (used for rel path output).
+    base_url:
+      - the remote URL of the CSS *context*
+      - external stylesheet URL for downloaded .css
+      - page URL for inline <style> blocks or style="..."
+
+    base_dir:
+      - local directory where this CSS lives (controls the relative path output)
+
+    Also:
+    - If download_q is provided, enqueue newly discovered assets referenced by CSS.
     """
 
     def map_one(url_part: str) -> Optional[str]:
         url_part = url_part.strip()
 
+        # Skip empties / anchors / non-fetchable schemes.
         if not url_part:
             return None
         if url_part.startswith("#"):
@@ -406,12 +489,14 @@ def rewrite_css_text(
         if is_non_fetchable(url_part2) or not is_httpish(url_part2):
             return None
 
+        # Canonicalize to a stable absolute URL
         abs_url = canonicalize_url(url_part2, base_url)
         parsed = urlparse(abs_url)
         if not parsed.path:
             return None
 
-        # Be conservative: only rewrite things that look like static assets.
+        # Only rewrite things that look like static assets.
+        # (Avoid rewriting API URLs accidentally.)
         if not parsed.path.lower().endswith(ASSET_EXTENSIONS):
             return None
 
@@ -419,25 +504,31 @@ def rewrite_css_text(
         if is_ext and not download_external_assets:
             return None
 
+        # Decide where to store it locally
         local_path = (
             cdn_local_path(parsed, site_root)
             if is_ext
             else to_local_asset_path(parsed, site_root)
         )
+
+        # Queue it for downloading if not already present
         if download_q is not None and not local_path.exists():
             log.debug("Queue asset (rewrite): %s -> %s", abs_url, local_path)
             download_q.put((abs_url, local_path))
 
+        # Output a relative URL for the rewritten CSS
         rel = _rel_url(local_path, base_dir)
         if parsed.fragment:
             rel = f"{rel}#{parsed.fragment}"
         return rel
 
+    # Replace url(...) references
     def repl_url(m: re.Match) -> str:
         raw = m.group(1).strip()
         quote = ""
         url_part = raw
 
+        # Preserve quoting style if present
         if len(raw) >= 2 and raw[0] in ("'", '"') and raw[-1] == raw[0]:
             quote = raw[0]
             url_part = raw[1:-1].strip()
@@ -450,6 +541,7 @@ def rewrite_css_text(
             return f"url({quote}{mapped}{quote})"
         return f"url({mapped})"
 
+    # Replace @import references
     def repl_import(m: re.Match) -> str:
         url_part = m.group(1).strip().strip("'\"")
         mapped = map_one(url_part)
@@ -475,8 +567,10 @@ def rewrite_js_text(
     """
     Rewrite obvious static asset URL strings inside JS.
 
-    This intentionally stays conservative: it rewrites only string literals that
-    point to common static-asset extensions (JS_URL_RE / JS_ABS_URL_RE).
+    Important:
+    - This does NOT parse JS AST; it does simple regex matching on string literals.
+    - It ONLY rewrites strings that look like static assets by extension.
+    - This prevents accidentally rewriting API endpoints or app routes.
     """
 
     def map_one(url_part: str) -> Optional[str]:
@@ -541,14 +635,16 @@ def rewrite_js_text(
 def _canonical_netloc(parsed: ParseResult) -> str:
     """
     Lowercase hostname and drop default ports so we don't create different
-    local folders for the same CDN host.
+    local folders for the same host.
+
+    Example:
+      https://EXAMPLE.com:443/a.css -> example.com
     """
     host = (parsed.hostname or "").lower()
     port = parsed.port
     if not host:
         return parsed.netloc.lower()
 
-    # Drop default ports
     if (parsed.scheme == "https" and port == 443) or (
         parsed.scheme == "http" and port == 80
     ):
@@ -560,9 +656,11 @@ def _canonical_netloc(parsed: ParseResult) -> str:
 def canonicalize_url(url: str, base_url: str = "") -> str:
     """
     Produce a stable absolute URL key for de-duping + mapping.
+
+    Steps:
     - Fix protocol-relative URLs
-    - Join relative URLs to base_url if provided
-    - Drop fragments
+    - Join relative URLs against base_url
+    - Drop fragments (#...)
     - Normalize host casing + default ports
     """
     if base_url:
@@ -571,7 +669,8 @@ def canonicalize_url(url: str, base_url: str = "") -> str:
         url = _protocol_fix(url, url)
 
     p = urlparse(url)
-    # If still relative, keep as-is (caller can decide)
+
+    # If still relative, join using base_url (when available).
     if not p.scheme and not p.netloc:
         p = urlparse(urljoin(base_url, url)) if base_url else p
 
@@ -586,7 +685,11 @@ def canonicalize_url(url: str, base_url: str = "") -> str:
 
 
 def fetch_html(url: str) -> Optional[BeautifulSoup]:
-    """Download url and return a BeautifulSoup tree (or None on error)."""
+    """
+    Download an HTML page and return a BeautifulSoup tree.
+
+    We return None on error so the crawler can continue on failures.
+    """
     try:
         resp = SESSION.get(url, timeout=TIMEOUT)
         resp.raise_for_status()
@@ -605,8 +708,14 @@ def fetch_binary(
     root_netloc: str = "",
     download_external_assets: bool = False,
 ) -> None:
-    """Stream URL to dest unless it already exists."""
+    """
+    Stream a binary/static resource to disk.
 
+    Notes:
+    - If already exists, skip.
+    - Writes using streaming so we don't keep big files in memory.
+    - If the file is CSS or JS, rewrite embedded asset URLs and enqueue them.
+    """
     if dest.exists():
         return
 
@@ -616,6 +725,7 @@ def fetch_binary(
 
         create_dir(dest.parent)
 
+        # Try normal write
         try:
             with dest.open("wb") as fh:
                 for chunk in resp.iter_content(CHUNK_SIZE):
@@ -623,6 +733,7 @@ def fetch_binary(
                         fh.write(chunk)
             log.debug("Saved resource -> %s", dest)
 
+        # If filesystem rejects it (path too long, invalid name), fallback
         except OSError as exc:
             log.warning("Binary write failed for %s: %s. Using fallback.", dest, exc)
 
@@ -640,7 +751,8 @@ def fetch_binary(
             log.debug("Saved resource (fallback) -> %s", fallback)
             dest = fallback
 
-        # Rewrite CSS + enqueue referenced assets
+        # If we downloaded CSS, rewrite its url(...) and @import references,
+        # and enqueue referenced assets (images/fonts/etc).
         if (
             dest.suffix.lower() == ".css"
             and download_q is not None
@@ -663,7 +775,8 @@ def fetch_binary(
             except Exception as exc:  # noqa: BLE001
                 log.debug("CSS rewrite failed for %s – %s", dest, exc)
 
-        # Rewrite JS + enqueue referenced assets
+        # If we downloaded JS, rewrite obvious static URL strings,
+        # and enqueue referenced assets (only those matching ASSET_EXTENSIONS).
         if (
             dest.suffix.lower() in {".js", ".mjs"}
             and download_q is not None
@@ -702,31 +815,41 @@ def rewrite_links(
     page_dir: Path,
     download_external_assets: bool = False,
 ) -> None:
-    """Rewrite links so internal + optional CDN assets point to local files."""
+    """
+    Rewrite HTML so it can be opened offline.
 
+    Rules:
+    - Internal page links (<a href>) become local HTML file paths.
+    - Internal asset links (img/src, script/src, link/href, etc) become local asset paths.
+    - CDN/external links are kept unchanged in HTML (your current behavior).
+      NOTE: CSS/JS content rewriting can still localize CDN URLs if downloaded.
+    - Remove <base href="..."> because it changes browser URL resolution offline.
+    """
     root_netloc = _canonical_netloc(urlparse(page_url))
 
-    # Remove <base href="..."> because it affects how browsers resolve relative URLs
+    # <base href> breaks relative paths when opening offline.
     base_tag = soup.find("base")
     if base_tag is not None and base_tag.has_attr("href"):
         base_tag.decompose()
 
+    # Common attributes that contain URL-like values.
     url_attrs = {"src", "href", "data-src", "poster"}
 
     for tag in soup.find_all(True):
 
-        # Keep <link> rewriting for rel that actually fetches assets.
+        # For <link>, only rewrite rel-types that are actually fetched by browsers.
+        # This avoids rewriting <link rel="canonical"> or <link rel="alternate"> etc.
         if tag.name == "link":
             rel = tag.get("rel", [])
             if isinstance(rel, str):
                 rel = [rel]
-
             rel = [r.lower() for r in rel]
             if not any(
                 r in rel for r in ("stylesheet", "icon", "preload", "modulepreload")
             ):
                 continue
 
+        # Rewrite each URL attribute we care about
         for attr in url_attrs:
             if not tag.has_attr(attr):
                 continue
@@ -737,6 +860,7 @@ def rewrite_links(
 
             original = _protocol_fix(original_raw, page_url)
 
+            # Skip anchors, non-fetchable schemes, and things that are not http(s)/relative.
             if (
                 original.startswith("#")
                 or is_non_fetchable(original)
@@ -751,10 +875,12 @@ def rewrite_links(
             if is_ext and not download_external_assets:
                 continue
 
+            # Treat <a href> as a "page". Everything else is treated as an asset.
             treat_as_page = tag.name == "a" and attr == "href"
 
             if is_ext:
-                # Do not rewrite CDN links in HTML — keep original URLs
+                # Current policy: do NOT rewrite CDN links in HTML.
+                # (If you ever decide to fully offline CDN, this is the spot to change.)
                 continue
             else:
                 local_path = (
@@ -768,15 +894,17 @@ def rewrite_links(
                 rel = f"{rel}#{parsed.fragment}"
             tag[attr] = rel
 
-        # srcset rewriting
+        # srcset="url1 1x, url2 2x" needs special parsing
         if tag.has_attr("srcset"):
             new_entries = []
             for entry in str(tag["srcset"]).split(","):
                 entry = entry.strip()
                 if not entry:
                     continue
+
                 parts = entry.split()
                 url_part = _protocol_fix(parts[0], page_url)
+
                 if (
                     url_part.startswith("#")
                     or is_non_fetchable(url_part)
@@ -789,9 +917,8 @@ def rewrite_links(
                 parsed = urlparse(abs_url)
 
                 is_ext = not is_internal(abs_url, root_netloc)
-                is_ext = not is_internal(abs_url, root_netloc)
                 if is_ext:
-                    # Keep CDN srcset URLs unchanged
+                    # Current policy: keep CDN srcset URLs unchanged
                     new_entries.append(entry)
                     continue
 
@@ -802,9 +929,10 @@ def rewrite_links(
 
                 parts[0] = rel
                 new_entries.append(" ".join(parts))
+
             tag["srcset"] = ", ".join(new_entries)
 
-        # inline style rewriting
+        # Inline style="background:url(...)" rewriting
         if tag.has_attr("style"):
             style = str(tag["style"])
 
@@ -812,6 +940,7 @@ def rewrite_links(
                 raw = m.group(1).strip()
                 quote = ""
                 url_part = raw
+
                 if len(raw) >= 2 and raw[0] in ("'", '"') and raw[-1] == raw[0]:
                     quote = raw[0]
                     url_part = raw[1:-1].strip()
@@ -830,12 +959,13 @@ def rewrite_links(
                 abs_url = canonicalize_url(url_part2, page_url)
                 parsed = urlparse(abs_url)
 
+                # Only rewrite things that look like assets.
                 if not parsed.path.lower().endswith(ASSET_EXTENSIONS):
                     return m.group(0)
 
                 is_ext = not is_internal(abs_url, root_netloc)
                 if is_ext:
-                    # Keep CDN URLs unchanged in inline style
+                    # Current policy: keep CDN URLs unchanged in inline styles
                     return m.group(0)
 
                 local_path = to_local_asset_path(parsed, site_root)
@@ -850,7 +980,7 @@ def rewrite_links(
             style = CSS_URL_RE.sub(repl_style, style)
             tag["style"] = style
 
-    # rewrite <style> blocks too
+    # Rewrite <style> blocks too (internal assets only; CDN kept unchanged here)
     for style_tag in soup.find_all("style"):
         try:
             css_text = style_tag.string or style_tag.get_text()
@@ -877,7 +1007,12 @@ def rewrite_links(
 
 
 def extract_css_assets(css_text: str) -> list[str]:
-    """Extract asset URLs from CSS url(...) and @import patterns safely."""
+    """
+    Extract asset URLs from CSS url(...) and @import patterns.
+
+    This is used when scanning <style> blocks during HTML parse time
+    (before the CSS is written to disk).
+    """
     results: list[str] = []
 
     for match in CSS_URL_RE.findall(css_text):
@@ -902,18 +1037,29 @@ def crawl_site(
     threads: int,
     download_external_assets: bool = False,
 ) -> None:
-    """Breadth-first crawl limited to max_pages. Downloads assets via workers."""
+    """
+    Breadth-first crawl limited to max_pages.
+
+    - q_pages: pages to crawl (HTML only, internal-only)
+    - download_q: assets to download (internal, and optionally external)
+    - worker threads: process download_q and write to disk
+    """
     q_pages: queue.Queue[str] = queue.Queue()
     q_pages.put(start_url)
 
     seen_pages: set[str] = set()
     queued_pages: set[str] = {start_url}
+
+    # queued_assets ensures we don't enqueue the same asset URL many times.
     queued_assets: set[str] = set()
+
+    # download_q holds (abs_url, destination_path) pairs.
     download_q: queue.Queue[tuple[str, Path]] = queue.Queue()
 
     root_netloc = _canonical_netloc(urlparse(start_url))
 
     def worker() -> None:
+        """Download worker thread: pulls tasks from download_q and writes them."""
         while True:
             url, dest = download_q.get()
             try:
@@ -931,6 +1077,7 @@ def crawl_site(
             finally:
                 download_q.task_done()
 
+    # Spawn the asset download workers.
     for i in range(max(1, threads)):
         t = threading.Thread(target=worker, name=f"DL-{i+1}", daemon=True)
         t.start()
@@ -942,6 +1089,7 @@ def crawl_site(
         page_url = canonicalize_url(q_pages.get())
         if page_url in seen_pages:
             continue
+
         seen_pages.add(page_url)
         log.info("[%s/%s] %s", len(seen_pages), max_pages, page_url)
 
@@ -949,11 +1097,16 @@ def crawl_site(
         if soup is None:
             continue
 
-        # Gather links & assets (including srcset + inline CSS urls)
+        # Walk the DOM once and:
+        # 1) enqueue internal pages from <a href=...>
+        # 2) enqueue assets referenced via src/href/data-src/poster/srcset/style/<style>
         for tag in soup.find_all(True):
+
+            # Common URL-bearing attributes
             for attr in ("src", "href", "data-src", "poster"):
                 if not tag.has_attr(attr):
                     continue
+
                 link_raw = str(tag.get(attr, "")).strip()
                 if not link_raw:
                     continue
@@ -970,7 +1123,7 @@ def crawl_site(
                 parsed = urlparse(abs_url)
                 is_ext = not is_internal(abs_url, root_netloc)
 
-                # Pages: only crawl internal pages from <a href=...>
+                # Only crawl internal HTML pages from <a href=...>
                 suffix = Path(parsed.path).suffix.lower()
                 is_page = (
                     tag.name == "a"
@@ -984,16 +1137,16 @@ def crawl_site(
                         queued_pages.add(abs_url)
                     continue
 
-                # Assets
+                # Otherwise treat it as an asset candidate.
                 if is_ext:
                     if not download_external_assets:
                         continue
 
-                    # allow scripts and styles without extensions
-                    if tag.name not in (
-                        "script",
-                        "link",
-                    ) and not parsed.path.lower().endswith(ASSET_EXTENSIONS):
+                    # External assets without extensions are only allowed for <script> and <link>
+                    # because CDNs sometimes serve JS/CSS without filename extensions.
+                    if tag.name not in ("script", "link") and not parsed.path.lower().endswith(
+                        ASSET_EXTENSIONS
+                    ):
                         continue
 
                     dest_path = cdn_local_path(parsed, root)
@@ -1006,12 +1159,13 @@ def crawl_site(
                     log.debug("Queue asset: %s -> %s", abs_url, dest_path)
                     download_q.put((abs_url, dest_path))
 
-            # srcset candidates
+            # srcset handling (images at multiple resolutions)
             if tag.has_attr("srcset"):
                 for entry in str(tag["srcset"]).split(","):
                     entry = entry.strip()
                     if not entry:
                         continue
+
                     url_part = _protocol_fix(entry.split()[0], page_url)
                     if (
                         url_part.startswith("#")
@@ -1039,7 +1193,7 @@ def crawl_site(
                         log.debug("Queue asset: %s -> %s", abs_url, dest_path)
                         download_q.put((abs_url, dest_path))
 
-            # inline style="...url(...)..."
+            # inline style="...url(...)..." assets
             if tag.has_attr("style"):
                 style = str(tag["style"])
                 for match in CSS_URL_RE.findall(style):
@@ -1055,6 +1209,7 @@ def crawl_site(
 
                     abs_url = normalize_url(canonicalize_url(url_part, page_url))
                     parsed = urlparse(abs_url)
+
                     if not parsed.path.lower().endswith(ASSET_EXTENSIONS):
                         continue
 
@@ -1073,11 +1228,12 @@ def crawl_site(
                         log.debug("Queue asset: %s -> %s", abs_url, dest_path)
                         download_q.put((abs_url, dest_path))
 
-            # <style> blocks
+            # <style> blocks: extract CSS asset references and enqueue them
             if tag.name == "style":
                 css_text = tag.string or tag.get_text()
                 if not css_text:
                     continue
+
                 for asset in extract_css_assets(css_text):
                     asset = _protocol_fix(asset, page_url)
                     if (
@@ -1110,13 +1266,18 @@ def crawl_site(
                         log.debug("Queue asset: %s -> %s", abs_url, dest_path)
                         download_q.put((abs_url, dest_path))
 
-        # Save current page
+        # Save current page:
+        # - determine local filename
+        # - rewrite links inside the HTML
+        # - write out the HTML
         local_path = to_local_path(urlparse(page_url), root)
         create_dir(local_path.parent)
         rewrite_links(soup, page_url, root, local_path.parent, download_external_assets)
         safe_write_text(local_path, str(soup), encoding="utf-8")
 
+    # Wait for all queued asset downloads to finish
     download_q.join()
+
     elapsed = time.time() - start_time
     if seen_pages:
         log.info(
@@ -1135,7 +1296,12 @@ def crawl_site(
 
 
 def make_root(url: str, custom: Optional[str]) -> Path:
-    """Derive output folder from URL if custom not supplied."""
+    """
+    Derive output folder from URL if custom not supplied.
+
+    Example:
+      https://example.com -> example_com
+    """
     return Path(custom) if custom else Path(urlparse(url).netloc.replace(".", "_"))
 
 
@@ -1145,6 +1311,14 @@ def make_root(url: str, custom: Optional[str]) -> Path:
 
 
 def parse_args() -> argparse.Namespace:
+    """
+    Parse command-line arguments.
+
+    --download-external-assets:
+      When enabled, we ALSO download assets from other hosts (CDNs).
+      Your HTML rewriting currently keeps CDN URLs unchanged in HTML,
+      but CSS/JS rewriting can still localize them if those files are downloaded.
+    """
     p = argparse.ArgumentParser(
         description="Recursively mirror a website for offline use.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -1180,6 +1354,7 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    # Basic argument validation
     args = parse_args()
     if args.max_pages < 1:
         log.error("--max-pages must be >= 1")
@@ -1188,8 +1363,11 @@ if __name__ == "__main__":
         log.error("--threads must be >= 1")
         sys.exit(2)
 
+    # start URL + output root folder
     host = args.url
     root = make_root(args.url, args.destination)
+
+    # Kick off crawl
     crawl_site(
         host,
         root,
