@@ -12,7 +12,7 @@ import time
 from hashlib import sha256
 from pathlib import Path
 from typing import Optional
-from urllib.parse import unquote, urljoin, urlparse, ParseResult
+from urllib.parse import ParseResult, unquote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -145,7 +145,16 @@ def create_dir(path: Path) -> None:
         log.debug("Created directory %s", path)
 
 
-NON_FETCHABLE_SCHEMES = {"mailto", "tel", "sms", "javascript", "data", "geo", "blob", "about"}
+NON_FETCHABLE_SCHEMES = {
+    "mailto",
+    "tel",
+    "sms",
+    "javascript",
+    "data",
+    "geo",
+    "blob",
+    "about",
+}
 
 
 def is_httpish(u: str) -> bool:
@@ -410,7 +419,11 @@ def rewrite_css_text(
         if is_ext and not download_external_assets:
             return None
 
-        local_path = cdn_local_path(parsed, site_root) if is_ext else to_local_asset_path(parsed, site_root)
+        local_path = (
+            cdn_local_path(parsed, site_root)
+            if is_ext
+            else to_local_asset_path(parsed, site_root)
+        )
         if download_q is not None and not local_path.exists():
             log.debug("Queue asset (rewrite): %s -> %s", abs_url, local_path)
             download_q.put((abs_url, local_path))
@@ -490,7 +503,11 @@ def rewrite_js_text(
         if is_ext and not download_external_assets:
             return None
 
-        local_path = cdn_local_path(parsed, site_root) if is_ext else to_local_asset_path(parsed, site_root)
+        local_path = (
+            cdn_local_path(parsed, site_root)
+            if is_ext
+            else to_local_asset_path(parsed, site_root)
+        )
         if download_q is not None and not local_path.exists():
             log.debug("Queue asset (rewrite): %s -> %s", abs_url, local_path)
             download_q.put((abs_url, local_path))
@@ -506,7 +523,7 @@ def rewrite_js_text(
         if mapped is None:
             return m.group(0)
         quote = m.group(0)[0]
-        return f'{quote}{mapped}{quote}'
+        return f"{quote}{mapped}{quote}"
 
     def repl_abs(m: re.Match) -> str:
         url_part = m.group(1)
@@ -514,7 +531,7 @@ def rewrite_js_text(
         if mapped is None:
             return m.group(0)
         quote = m.group(0)[0]
-        return f'{quote}{mapped}{quote}'
+        return f"{quote}{mapped}{quote}"
 
     js_text = JS_URL_RE.sub(repl_root_rel, js_text)
     js_text = JS_ABS_URL_RE.sub(repl_abs, js_text)
@@ -532,7 +549,9 @@ def _canonical_netloc(parsed: ParseResult) -> str:
         return parsed.netloc.lower()
 
     # Drop default ports
-    if (parsed.scheme == "https" and port == 443) or (parsed.scheme == "http" and port == 80):
+    if (parsed.scheme == "https" and port == 443) or (
+        parsed.scheme == "http" and port == 80
+    ):
         port = None
 
     return f"{host}:{port}" if port else host
@@ -608,7 +627,9 @@ def fetch_binary(
             log.warning("Binary write failed for %s: %s. Using fallback.", dest, exc)
 
             h = sha256(str(dest).encode("utf-8")).hexdigest()[:16]
-            fallback = dest.with_name(_shorten_segment(f"{dest.stem}-{h}{dest.suffix}", MAX_SEG_LEN))
+            fallback = dest.with_name(
+                _shorten_segment(f"{dest.stem}-{h}{dest.suffix}", MAX_SEG_LEN)
+            )
             create_dir(fallback.parent)
 
             with fallback.open("wb") as fh:
@@ -701,7 +722,9 @@ def rewrite_links(
                 rel = [rel]
 
             rel = [r.lower() for r in rel]
-            if not any(r in rel for r in ("stylesheet", "icon", "preload", "modulepreload")):
+            if not any(
+                r in rel for r in ("stylesheet", "icon", "preload", "modulepreload")
+            ):
                 continue
 
         for attr in url_attrs:
@@ -714,7 +737,11 @@ def rewrite_links(
 
             original = _protocol_fix(original_raw, page_url)
 
-            if original.startswith("#") or is_non_fetchable(original) or not is_httpish(original):
+            if (
+                original.startswith("#")
+                or is_non_fetchable(original)
+                or not is_httpish(original)
+            ):
                 continue
 
             abs_url = canonicalize_url(original, page_url)
@@ -724,14 +751,17 @@ def rewrite_links(
             if is_ext and not download_external_assets:
                 continue
 
-            treat_as_page = (tag.name == "a" and attr == "href")
+            treat_as_page = tag.name == "a" and attr == "href"
 
             if is_ext:
                 # Do not rewrite CDN links in HTML — keep original URLs
                 continue
             else:
-                local_path = to_local_path(parsed, site_root) if treat_as_page else to_local_asset_path(parsed,
-                                                                                                        site_root)
+                local_path = (
+                    to_local_path(parsed, site_root)
+                    if treat_as_page
+                    else to_local_asset_path(parsed, site_root)
+                )
 
             rel = _rel_url(local_path, page_dir)
             if parsed.fragment:
@@ -747,7 +777,11 @@ def rewrite_links(
                     continue
                 parts = entry.split()
                 url_part = _protocol_fix(parts[0], page_url)
-                if url_part.startswith("#") or is_non_fetchable(url_part) or not is_httpish(url_part):
+                if (
+                    url_part.startswith("#")
+                    or is_non_fetchable(url_part)
+                    or not is_httpish(url_part)
+                ):
                     new_entries.append(entry)
                     continue
 
@@ -759,7 +793,11 @@ def rewrite_links(
                     new_entries.append(entry)
                     continue
 
-                local_path = cdn_local_path(parsed, site_root) if is_ext else to_local_asset_path(parsed, site_root)
+                local_path = (
+                    cdn_local_path(parsed, site_root)
+                    if is_ext
+                    else to_local_asset_path(parsed, site_root)
+                )
                 rel = _rel_url(local_path, page_dir)
                 if parsed.fragment:
                     rel = f"{rel}#{parsed.fragment}"
@@ -801,7 +839,11 @@ def rewrite_links(
                 if is_ext and not download_external_assets:
                     return m.group(0)
 
-                local_path = cdn_local_path(parsed, site_root) if is_ext else to_local_asset_path(parsed, site_root)
+                local_path = (
+                    cdn_local_path(parsed, site_root)
+                    if is_ext
+                    else to_local_asset_path(parsed, site_root)
+                )
                 rel = _rel_url(local_path, page_dir)
                 if parsed.fragment:
                     rel = f"{rel}#{parsed.fragment}"
@@ -922,7 +964,11 @@ def crawl_site(
                     continue
 
                 link = _protocol_fix(link_raw, page_url)
-                if link.startswith("#") or is_non_fetchable(link) or not is_httpish(link):
+                if (
+                    link.startswith("#")
+                    or is_non_fetchable(link)
+                    or not is_httpish(link)
+                ):
                     continue
 
                 abs_url = normalize_url(canonicalize_url(link, page_url))
@@ -949,7 +995,10 @@ def crawl_site(
                         continue
 
                     # allow scripts and styles without extensions
-                    if tag.name not in ("script", "link") and not parsed.path.lower().endswith(ASSET_EXTENSIONS):
+                    if tag.name not in (
+                        "script",
+                        "link",
+                    ) and not parsed.path.lower().endswith(ASSET_EXTENSIONS):
                         continue
 
                     dest_path = cdn_local_path(parsed, root)
@@ -969,7 +1018,11 @@ def crawl_site(
                     if not entry:
                         continue
                     url_part = _protocol_fix(entry.split()[0], page_url)
-                    if url_part.startswith("#") or is_non_fetchable(url_part) or not is_httpish(url_part):
+                    if (
+                        url_part.startswith("#")
+                        or is_non_fetchable(url_part)
+                        or not is_httpish(url_part)
+                    ):
                         continue
 
                     abs_url = normalize_url(canonicalize_url(url_part, page_url))
@@ -1014,7 +1067,11 @@ def crawl_site(
                     if is_ext and not download_external_assets:
                         continue
 
-                    dest_path = cdn_local_path(parsed, root) if is_ext else to_local_asset_path(parsed, root)
+                    dest_path = (
+                        cdn_local_path(parsed, root)
+                        if is_ext
+                        else to_local_asset_path(parsed, root)
+                    )
                     if abs_url not in queued_assets:
                         queued_assets.add(abs_url)
                         create_dir(dest_path.parent)
@@ -1047,7 +1104,11 @@ def crawl_site(
                     if is_ext and not download_external_assets:
                         continue
 
-                    dest_path = cdn_local_path(parsed, root) if is_ext else to_local_asset_path(parsed, root)
+                    dest_path = (
+                        cdn_local_path(parsed, root)
+                        if is_ext
+                        else to_local_asset_path(parsed, root)
+                    )
                     if abs_url not in queued_assets:
                         queued_assets.add(abs_url)
                         create_dir(dest_path.parent)
