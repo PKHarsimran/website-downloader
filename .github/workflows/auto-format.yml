@@ -2,26 +2,40 @@ name: 🧹 Python Code Quality
 
 on:
   push:
-    branches:
-      - main
-      - develop
+    branches: [main, develop]
+    # Avoid re-running just because the bot pushed formatting changes
+    # (still runs if code files change again later)
+    paths-ignore:
+      - "**/*.md"
+      - "**/*.txt"
+      - "LICENSE"
   pull_request:
+    branches: [main, develop]
+
+# Prevent multiple runs fighting to push to the same branch at the same time
+concurrency:
+  group: code-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
-  format-and-lint:
+  format-lint:
+    name: Format + Lint (Black, isort, Ruff)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       # -------------------------------------------------
-      # Checkout repository
+      # Checkout
       # -------------------------------------------------
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       # -------------------------------------------------
       # Setup Python
@@ -33,39 +47,102 @@ jobs:
           cache: "pip"
 
       # -------------------------------------------------
-      # Install tools
+      # Install Tools
       # -------------------------------------------------
       - name: 📦 Install Formatting & Lint Tools
         run: |
+          python -m pip install --upgrade pip
           pip install black isort ruff
 
       # -------------------------------------------------
-      # Run formatters
+      # Run Formatters
       # -------------------------------------------------
-      - name: 🧹 Format Code
+      - name: 🧹 Format Code (Black + isort)
         run: |
           black .
           isort .
 
       # -------------------------------------------------
-      # Commit formatting changes (only on push)
+      # Auto-commit formatting changes (push runs only)
       # -------------------------------------------------
-      - name: 💾 Commit Formatting Changes
-        if: github.event_name == 'push'
+      - name: 💾 Commit & Push Formatting Changes
+        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
         run: |
-          if [[ -n $(git status --porcelain) ]]; then
-            git config --global user.name "github-actions[bot]"
-            git config --global user.email "github-actions[bot]@users.noreply.github.com"
-            git add .
-            git commit -m "style: auto-format code with black & isort"
-            git push
-          else
-            echo "No formatting changes needed"
+          set -euo pipefail
+
+          # Only operate on expected branches
+          if [[ "${BRANCH_NAME}" != "main" && "${BRANCH_NAME}" != "develop" ]]; then
+            echo "Not a target branch (${BRANCH_NAME}). Skipping auto-commit."
+            exit 0
           fi
 
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "No formatting changes needed"
+            exit 0
+          fi
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add .
+          git commit -m "style: auto-format code with black & isort"
+
+          # Sync with remote to avoid non-fast-forward errors
+          git fetch origin "${BRANCH_NAME}"
+          git rebase "origin/${BRANCH_NAME}"
+
+          # Push with retry (handles race conditions)
+          for i in 1 2 3; do
+            if git push origin "HEAD:${BRANCH_NAME}"; then
+              echo "Pushed successfully."
+              exit 0
+            fi
+            echo "Push failed (attempt $i). Re-syncing and retrying..."
+            git fetch origin "${BRANCH_NAME}"
+            git rebase "origin/${BRANCH_NAME}"
+            sleep 2
+          done
+
+          echo "Failed to push after retries."
+          exit 1
+
       # -------------------------------------------------
-      # Run Ruff Linter
+      # Ensure workspace is clean for lint checks
+      # (On pull_request runs, the push step won't execute, so formatting
+      # changes remain unstaged and we should fail fast to show diffs.)
       # -------------------------------------------------
-      - name: 🔍 Run Ruff Linter
+      - name: ✅ Check formatting is clean (PRs)
+        if: github.event_name == 'pull_request'
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "Formatting changes detected. Please run black + isort locally."
+            echo ""
+            echo "Diff:"
+            git --no-pager diff
+            exit 1
+          fi
+          echo "Formatting OK."
+
+      # -------------------------------------------------
+      # Ruff (lint)
+      # -------------------------------------------------
+      - name: 🔍 Ruff Lint
         run: |
           ruff check .
+
+      # -------------------------------------------------
+      # Ruff (format) optional check (kept non-blocking by default)
+      # Uncomment if you want Ruff-format enforcement later.
+      # -------------------------------------------------
+      # - name: 🧾 Ruff Format Check
+      #   run: |
+      #     ruff format --check .
+
+      # -------------------------------------------------
+      # (Optional) Quick sanity: Python syntax compile
+      # -------------------------------------------------
+      - name: 🧪 Compile Python files
+        run: |
+          python -m compileall -q .
