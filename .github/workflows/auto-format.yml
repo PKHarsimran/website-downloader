@@ -7,18 +7,21 @@ on:
       - develop
   pull_request:
 
+permissions:
+  contents: write
+
 jobs:
   format-and-lint:
     runs-on: ubuntu-latest
 
     steps:
       # -------------------------------------------------
-      # Checkout
+      # Checkout repository
       # -------------------------------------------------
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       # -------------------------------------------------
       # Setup Python
@@ -27,16 +30,17 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
 
       # -------------------------------------------------
-      # Install Tools
+      # Install tools
       # -------------------------------------------------
       - name: 📦 Install Formatting & Lint Tools
         run: |
           pip install black isort ruff
 
       # -------------------------------------------------
-      # Run Formatters
+      # Run formatters
       # -------------------------------------------------
       - name: 🧹 Format Code
         run: |
@@ -44,13 +48,14 @@ jobs:
           isort .
 
       # -------------------------------------------------
-      # Commit formatting changes automatically
+      # Commit formatting changes (only on push)
       # -------------------------------------------------
       - name: 💾 Commit Formatting Changes
+        if: github.event_name == 'push'
         run: |
           if [[ -n $(git status --porcelain) ]]; then
-            git config --global user.name "github-actions"
-            git config --global user.email "github-actions@github.com"
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
             git add .
             git commit -m "style: auto-format code with black & isort"
             git push
@@ -59,7 +64,7 @@ jobs:
           fi
 
       # -------------------------------------------------
-      # Run Ruff Linter (fast)
+      # Run Ruff Linter
       # -------------------------------------------------
       - name: 🔍 Run Ruff Linter
         run: |
