@@ -457,6 +457,7 @@ def rewrite_css_text(
     root_netloc: str,
     base_dir: Path,
     download_external_assets: bool,
+external_domains: Optional[set[str]] = None,
     download_q: Optional[queue.Queue[tuple[str, Path]]] = None,
 ) -> str:
     """
@@ -501,6 +502,9 @@ def rewrite_css_text(
             return None
 
         is_ext = not is_internal(abs_url, root_netloc)
+        if is_ext and not is_allowed_external(abs_url, external_domains):
+            return None
+
         if is_ext and not download_external_assets:
             return None
 
@@ -562,6 +566,7 @@ def rewrite_js_text(
     root_netloc: str,
     base_dir: Path,
     download_external_assets: bool,
+    external_domains: Optional[set[str]] = None,
     download_q: Optional[queue.Queue[tuple[str, Path]]] = None,
 ) -> str:
     """
@@ -594,6 +599,9 @@ def rewrite_js_text(
             return None
 
         is_ext = not is_internal(abs_url, root_netloc)
+        if is_ext and not is_allowed_external(abs_url, external_domains):
+            return None
+
         if is_ext and not download_external_assets:
             return None
 
@@ -679,6 +687,18 @@ def canonicalize_url(url: str, base_url: str = "") -> str:
     return p.geturl()
 
 
+def is_allowed_external(url: str, allowed_domains: Optional[set[str]]) -> bool:
+    if allowed_domains is None:
+        return True
+
+    host = (urlparse(url).hostname or "").lower()
+
+    return any(
+        host == d or host.endswith("." + d)
+        for d in allowed_domains
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fetchers
 # ---------------------------------------------------------------------------
@@ -707,6 +727,7 @@ def fetch_binary(
     site_root: Optional[Path] = None,
     root_netloc: str = "",
     download_external_assets: bool = False,
+    external_domains: Optional[set[str]] = None,
 ) -> None:
     """
     Stream a binary/static resource to disk.
@@ -768,6 +789,7 @@ def fetch_binary(
                     root_netloc=root_netloc,
                     base_dir=dest.parent,
                     download_external_assets=download_external_assets,
+                    external_domains=external_domains,
                     download_q=download_q,
                 )
                 if rewritten != css_text:
@@ -792,6 +814,7 @@ def fetch_binary(
                     root_netloc=root_netloc,
                     base_dir=dest.parent,
                     download_external_assets=download_external_assets,
+                    external_domains=external_domains,
                     download_q=download_q,
                 )
                 if rewritten != js_text:
@@ -814,6 +837,7 @@ def rewrite_links(
     site_root: Path,
     page_dir: Path,
     download_external_assets: bool = False,
+    external_domains: Optional[set[str]] = None,
 ) -> None:
     """
     Rewrite HTML so it can be opened offline.
@@ -872,8 +896,11 @@ def rewrite_links(
             parsed = urlparse(abs_url)
 
             is_ext = not is_internal(abs_url, root_netloc)
-            if is_ext and not download_external_assets:
-                continue
+            if is_ext:
+                if not download_external_assets:
+                    continue
+                if not is_allowed_external(abs_url, external_domains):
+                    continue
 
             # Treat <a href> as a "page". Everything else is treated as an asset.
             treat_as_page = tag.name == "a" and attr == "href"
@@ -992,7 +1019,8 @@ def rewrite_links(
                 site_root=site_root,
                 root_netloc=root_netloc,
                 base_dir=page_dir,
-                download_external_assets=False,
+                download_external_assets=download_external_assets,
+                external_domains=external_domains,
                 download_q=None,
             )
             if rewritten != css_text:
@@ -1036,6 +1064,7 @@ def crawl_site(
     max_pages: int,
     threads: int,
     download_external_assets: bool = False,
+    external_domains: Optional[set[str]] = None,
 ) -> None:
     """
     Breadth-first crawl limited to max_pages.
@@ -1073,6 +1102,7 @@ def crawl_site(
                     site_root=root,
                     root_netloc=root_netloc,
                     download_external_assets=download_external_assets,
+                    external_domains=external_domains,
                 )
             finally:
                 download_q.task_done()
@@ -1139,7 +1169,14 @@ def crawl_site(
 
                 # Otherwise treat it as an asset candidate.
                 if is_ext:
+                    parsed_host = (urlparse(abs_url).hostname or "").lower()
+                    log.info("[EXT-ASSET] %s", parsed_host)
+
                     if not download_external_assets:
+                        continue
+
+                    if not is_allowed_external(abs_url, external_domains):
+                        log.debug("Blocked external (not whitelisted): %s", abs_url)
                         continue
 
                     # External assets without extensions are only allowed for <script> and <link>
@@ -1272,7 +1309,14 @@ def crawl_site(
         # - write out the HTML
         local_path = to_local_path(urlparse(page_url), root)
         create_dir(local_path.parent)
-        rewrite_links(soup, page_url, root, local_path.parent, download_external_assets)
+        rewrite_links(
+            soup,
+            page_url,
+            root,
+            local_path.parent,
+            download_external_assets,
+            external_domains,
+        )
         safe_write_text(local_path, str(soup), encoding="utf-8")
 
     # Wait for all queued asset downloads to finish
@@ -1350,6 +1394,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Download external CDN/static assets and rewrite links for offline use.",
     )
+    p.add_argument(
+        "--external-domains",
+        nargs="+",
+        default=None,
+        help="Whitelist of external domains to download from (implies external download).",
+    )
     return p.parse_args()
 
 
@@ -1367,11 +1417,25 @@ if __name__ == "__main__":
     host = args.url
     root = make_root(args.url, args.destination)
 
+    external_domains = (
+        {
+            urlparse(d).hostname.lower() if "://" in d else d.lower()
+            for d in args.external_domains
+        }
+        if args.external_domains
+        else None
+    )
+
+    download_external_assets = (
+            args.download_external_assets or args.external_domains is not None
+    )
+
     # Kick off crawl
     crawl_site(
         host,
         root,
         args.max_pages,
         args.threads,
-        args.download_external_assets,
+        download_external_assets,
+        external_domains,
     )
