@@ -451,15 +451,15 @@ def _protocol_fix(url: str, base_url: str) -> str:
 
 
 def rewrite_css_text(
-        css_text: str,
-        base_url: str,
-        *,
-        site_root: Path,
-        root_netloc: str,
-        base_dir: Path,
-        download_external_assets: bool,
-        external_domains: Optional[set[str]] = None,
-        download_q: Optional[queue.Queue[tuple[str, Path]]] = None,
+    css_text: str,
+    base_url: str,
+    *,
+    site_root: Path,
+    root_netloc: str,
+    base_dir: Path,
+    download_external_assets: bool,
+    external_domains: Optional[set[str]] = None,
+    download_q: Optional[queue.Queue[tuple[str, Path]]] = None,
 ) -> str:
     """
     Rewrite CSS url(...) and @import references to local relative paths.
@@ -560,15 +560,15 @@ def rewrite_css_text(
 
 
 def rewrite_js_text(
-        js_text: str,
-        base_url: str,
-        *,
-        site_root: Path,
-        root_netloc: str,
-        base_dir: Path,
-        download_external_assets: bool,
-        external_domains: Optional[set[str]] = None,
-        download_q: Optional[queue.Queue[tuple[str, Path]]] = None,
+    js_text: str,
+    base_url: str,
+    *,
+    site_root: Path,
+    root_netloc: str,
+    base_dir: Path,
+    download_external_assets: bool,
+    external_domains: Optional[set[str]] = None,
+    download_q: Optional[queue.Queue[tuple[str, Path]]] = None,
 ) -> str:
     """
     Rewrite obvious static asset URL strings inside JS.
@@ -655,7 +655,7 @@ def _canonical_netloc(parsed: ParseResult) -> str:
         return parsed.netloc.lower()
 
     if (parsed.scheme == "https" and port == 443) or (
-            parsed.scheme == "http" and port == 80
+        parsed.scheme == "http" and port == 80
     ):
         port = None
 
@@ -694,10 +694,7 @@ def is_allowed_external(url: str, allowed_domains: Optional[set[str]]) -> bool:
 
     host = (urlparse(url).hostname or "").lower()
 
-    return any(
-        host == d or host.endswith("." + d)
-        for d in allowed_domains
-    )
+    return any(host == d or host.endswith("." + d) for d in allowed_domains)
 
 
 # ---------------------------------------------------------------------------
@@ -721,14 +718,14 @@ def fetch_html(url: str) -> Optional[BeautifulSoup]:
 
 
 def fetch_binary(
-        url: str,
-        dest: Path,
-        download_q: Optional[queue.Queue[tuple[str, Path]]] = None,
-        *,
-        site_root: Optional[Path] = None,
-        root_netloc: str = "",
-        download_external_assets: bool = False,
-        external_domains: Optional[set[str]] = None,
+    url: str,
+    dest: Path,
+    download_q: Optional[queue.Queue[tuple[str, Path]]] = None,
+    *,
+    site_root: Optional[Path] = None,
+    root_netloc: str = "",
+    download_external_assets: bool = False,
+    external_domains: Optional[set[str]] = None,
 ) -> None:
     """
     Stream a binary/static resource to disk.
@@ -776,10 +773,10 @@ def fetch_binary(
         # If we downloaded CSS, rewrite its url(...) and @import references,
         # and enqueue referenced assets (images/fonts/etc).
         if (
-                dest.suffix.lower() == ".css"
-                and download_q is not None
-                and site_root is not None
-                and root_netloc
+            dest.suffix.lower() == ".css"
+            and download_q is not None
+            and site_root is not None
+            and root_netloc
         ):
             try:
                 css_text = dest.read_text(encoding="utf-8", errors="ignore")
@@ -801,10 +798,10 @@ def fetch_binary(
         # If we downloaded JS, rewrite obvious static URL strings,
         # and enqueue referenced assets (only those matching ASSET_EXTENSIONS).
         if (
-                dest.suffix.lower() in {".js", ".mjs"}
-                and download_q is not None
-                and site_root is not None
-                and root_netloc
+            dest.suffix.lower() in {".js", ".mjs"}
+            and download_q is not None
+            and site_root is not None
+            and root_netloc
         ):
             try:
                 js_text = dest.read_text(encoding="utf-8", errors="ignore")
@@ -833,12 +830,12 @@ def fetch_binary(
 
 
 def rewrite_links(
-        soup: BeautifulSoup,
-        page_url: str,
-        site_root: Path,
-        page_dir: Path,
-        download_external_assets: bool = False,
-        external_domains: Optional[set[str]] = None,
+    soup: BeautifulSoup,
+    page_url: str,
+    site_root: Path,
+    page_dir: Path,
+    download_external_assets: bool = False,
+    external_domains: Optional[set[str]] = None,
 ) -> None:
     """
     Rewrite HTML so it can be opened offline.
@@ -870,7 +867,7 @@ def rewrite_links(
                 rel = [rel]
             rel = [r.lower() for r in rel]
             if not any(
-                    r in rel for r in ("stylesheet", "icon", "preload", "modulepreload")
+                r in rel for r in ("stylesheet", "icon", "preload", "modulepreload")
             ):
                 continue
 
@@ -887,9 +884,9 @@ def rewrite_links(
 
             # Skip anchors, non-fetchable schemes, and things that are not http(s)/relative.
             if (
-                    original.startswith("#")
-                    or is_non_fetchable(original)
-                    or not is_httpish(original)
+                original.startswith("#")
+                or is_non_fetchable(original)
+                or not is_httpish(original)
             ):
                 continue
 
@@ -934,9 +931,9 @@ def rewrite_links(
                 url_part = _protocol_fix(parts[0], page_url)
 
                 if (
-                        url_part.startswith("#")
-                        or is_non_fetchable(url_part)
-                        or not is_httpish(url_part)
+                    url_part.startswith("#")
+                    or is_non_fetchable(url_part)
+                    or not is_httpish(url_part)
                 ):
                     new_entries.append(entry)
                     continue
@@ -974,9 +971,9 @@ def rewrite_links(
                     url_part = raw[1:-1].strip()
 
                 if (
-                        not url_part
-                        or url_part.startswith("#")
-                        or url_part.startswith(("data:", "javascript:", "about:"))
+                    not url_part
+                    or url_part.startswith("#")
+                    or url_part.startswith(("data:", "javascript:", "about:"))
                 ):
                     return m.group(0)
 
@@ -1060,12 +1057,12 @@ def extract_css_assets(css_text: str) -> list[str]:
 
 
 def crawl_site(
-        start_url: str,
-        root: Path,
-        max_pages: int,
-        threads: int,
-        download_external_assets: bool = False,
-        external_domains: Optional[set[str]] = None,
+    start_url: str,
+    root: Path,
+    max_pages: int,
+    threads: int,
+    download_external_assets: bool = False,
+    external_domains: Optional[set[str]] = None,
 ) -> None:
     """
     Breadth-first crawl limited to max_pages.
@@ -1144,9 +1141,9 @@ def crawl_site(
 
                 link = _protocol_fix(link_raw, page_url)
                 if (
-                        link.startswith("#")
-                        or is_non_fetchable(link)
-                        or not is_httpish(link)
+                    link.startswith("#")
+                    or is_non_fetchable(link)
+                    or not is_httpish(link)
                 ):
                     continue
 
@@ -1157,9 +1154,9 @@ def crawl_site(
                 # Only crawl internal HTML pages from <a href=...>
                 suffix = Path(parsed.path).suffix.lower()
                 is_page = (
-                        tag.name == "a"
-                        and not is_ext
-                        and (parsed.path.endswith("/") or suffix in PAGE_SUFFIXES)
+                    tag.name == "a"
+                    and not is_ext
+                    and (parsed.path.endswith("/") or suffix in PAGE_SUFFIXES)
                 )
 
                 if is_page:
@@ -1182,9 +1179,10 @@ def crawl_site(
 
                     # External assets without extensions are only allowed for <script> and <link>
                     # because CDNs sometimes serve JS/CSS without filename extensions.
-                    if tag.name not in ("script", "link") and not parsed.path.lower().endswith(
-                            ASSET_EXTENSIONS
-                    ):
+                    if tag.name not in (
+                        "script",
+                        "link",
+                    ) and not parsed.path.lower().endswith(ASSET_EXTENSIONS):
                         continue
 
                     dest_path = cdn_local_path(parsed, root)
@@ -1206,9 +1204,9 @@ def crawl_site(
 
                     url_part = _protocol_fix(entry.split()[0], page_url)
                     if (
-                            url_part.startswith("#")
-                            or is_non_fetchable(url_part)
-                            or not is_httpish(url_part)
+                        url_part.startswith("#")
+                        or is_non_fetchable(url_part)
+                        or not is_httpish(url_part)
                     ):
                         continue
 
@@ -1237,11 +1235,11 @@ def crawl_site(
                 for match in CSS_URL_RE.findall(style):
                     url_part = _protocol_fix(match.strip().strip("'\""), page_url)
                     if (
-                            not url_part
-                            or url_part.startswith("#")
-                            or url_part.startswith(("data:", "javascript:", "about:"))
-                            or is_non_fetchable(url_part)
-                            or not is_httpish(url_part)
+                        not url_part
+                        or url_part.startswith("#")
+                        or url_part.startswith(("data:", "javascript:", "about:"))
+                        or is_non_fetchable(url_part)
+                        or not is_httpish(url_part)
                     ):
                         continue
 
@@ -1275,11 +1273,11 @@ def crawl_site(
                 for asset in extract_css_assets(css_text):
                     asset = _protocol_fix(asset, page_url)
                     if (
-                            not asset
-                            or asset.startswith("#")
-                            or asset.startswith(("data:", "javascript:", "about:"))
-                            or is_non_fetchable(asset)
-                            or not is_httpish(asset)
+                        not asset
+                        or asset.startswith("#")
+                        or asset.startswith(("data:", "javascript:", "about:"))
+                        or is_non_fetchable(asset)
+                        or not is_httpish(asset)
                     ):
                         continue
 
@@ -1428,7 +1426,7 @@ if __name__ == "__main__":
     )
 
     download_external_assets = (
-            args.download_external_assets or args.external_domains is not None
+        args.download_external_assets or args.external_domains is not None
     )
 
     # Kick off crawl
