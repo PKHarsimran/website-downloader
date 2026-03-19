@@ -124,6 +124,16 @@ _WINDOWS_RESERVED_NAMES = {
     *(f"LPT{i}" for i in range(1, 10)),
 }
 
+RESOURCE_LINK_RELS = {
+    "stylesheet",
+    "icon",
+    "shortcut",
+    "apple-touch-icon",
+    "preload",
+    "modulepreload",
+    "manifest",
+}
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -877,10 +887,52 @@ def rewrite_links(
             if isinstance(rel, str):
                 rel = [rel]
             rel = [r.lower() for r in rel]
-            if not any(
-                r in rel for r in ("stylesheet", "icon", "preload", "modulepreload")
-            ):
+
+            rel_set = set(rel)
+            if not rel_set & RESOURCE_LINK_RELS:
                 continue
+
+        # ------------------------------------------------------------------
+        # META IMAGE REWRITE (make og/twitter images local)
+        # ------------------------------------------------------------------
+        if tag.name == "meta":
+            content = str(tag.get("content", "")).strip()
+            prop = (tag.get("property") or tag.get("name") or "").lower()
+
+            if content and ("og:image" in prop or "twitter:image" in prop):
+
+                url_part = _protocol_fix(content, page_url)
+
+                if (
+                    not url_part
+                    or url_part.startswith("#")
+                    or url_part.startswith(("data:", "javascript:", "about:"))
+                    or is_non_fetchable(url_part)
+                    or not is_httpish(url_part)
+                ):
+                    continue
+
+                abs_url = canonicalize_url(url_part, page_url)
+                parsed = urlparse(abs_url)
+
+                is_ext = not is_internal(abs_url, root_netloc)
+
+                if is_ext:
+                    if not download_external_assets:
+                        continue
+                    if not is_allowed_external(abs_url, external_domains):
+                        continue
+
+                # map to local path
+                local_path = (
+                    cdn_local_path(parsed, site_root)
+                    if is_ext
+                    else to_local_asset_path(parsed, site_root)
+                )
+
+                # rewrite to relative path
+                rel = _rel_url(local_path, page_dir)
+                tag["content"] = rel
 
         # Rewrite each URL attribute we care about
         for attr in url_attrs:
@@ -1179,7 +1231,7 @@ def crawl_site(
                 # Otherwise treat it as an asset candidate.
                 if is_ext:
                     parsed_host = (urlparse(abs_url).hostname or "").lower()
-                    log.info("[EXT-ASSET] %s", parsed_host)
+                    log.debug("[EXT-ASSET] %s", parsed_host)
 
                     if not download_external_assets:
                         continue
@@ -1205,6 +1257,60 @@ def crawl_site(
                     create_dir(dest_path.parent)
                     log.debug("Queue asset: %s -> %s", abs_url, dest_path)
                     download_q.put((abs_url, dest_path))
+
+            # ------------------------------------------------------------------
+            # META IMAGE SUPPORT (og:image, twitter:image)
+            # ------------------------------------------------------------------
+            if tag.name == "meta":
+                content = str(tag.get("content", "")).strip()
+                prop = (tag.get("property") or tag.get("name") or "").lower()
+
+                if content and ("og:image" in prop or "twitter:image" in prop):
+                    url_part = _protocol_fix(content, page_url)
+
+                    if (
+                        not url_part
+                        or url_part.startswith("#")
+                        or url_part.startswith(("data:", "javascript:", "about:"))
+                        or is_non_fetchable(url_part)
+                        or not is_httpish(url_part)
+                    ):
+                        continue
+                    else:
+                        abs_url = normalize_url(canonicalize_url(url_part, page_url))
+                        parsed = urlparse(abs_url)
+
+                        if parsed.path.lower().endswith(ASSET_EXTENSIONS):
+                            is_ext = not is_internal(abs_url, root_netloc)
+
+                            if is_ext:
+                                if not download_external_assets:
+                                    continue
+                                elif not is_allowed_external(abs_url, external_domains):
+                                    log.debug("Blocked external (meta): %s", abs_url)
+                                    continue
+                                else:
+                                    dest_path = cdn_local_path(parsed, root)
+
+                                    if abs_url not in queued_assets:
+                                        queued_assets.add(abs_url)
+                                        create_dir(dest_path.parent)
+                                        log.debug(
+                                            "Queue meta asset: %s -> %s",
+                                            abs_url,
+                                            dest_path,
+                                        )
+                                        download_q.put((abs_url, dest_path))
+                            else:
+                                dest_path = to_local_asset_path(parsed, root)
+
+                                if abs_url not in queued_assets:
+                                    queued_assets.add(abs_url)
+                                    create_dir(dest_path.parent)
+                                    log.debug(
+                                        "Queue meta asset: %s -> %s", abs_url, dest_path
+                                    )
+                                    download_q.put((abs_url, dest_path))
 
             # srcset handling (images at multiple resolutions)
             if tag.has_attr("srcset"):
