@@ -1144,9 +1144,10 @@ def crawl_site(
 
                     # External assets without extensions are only allowed for <script> and <link>
                     # because CDNs sometimes serve JS/CSS without filename extensions.
-                    if tag.name not in ("script", "link") and not parsed.path.lower().endswith(
-                        ASSET_EXTENSIONS
-                    ):
+                    if tag.name not in (
+                        "script",
+                        "link",
+                    ) and not parsed.path.lower().endswith(ASSET_EXTENSIONS):
                         continue
 
                     dest_path = cdn_local_path(parsed, root)
