@@ -735,6 +735,17 @@ def fetch_binary(
     - Writes using streaming so we don't keep big files in memory.
     - If the file is CSS or JS, rewrite embedded asset URLs and enqueue them.
     """
+    is_ext = not is_internal(url, root_netloc)
+
+    if is_ext:
+        if not download_external_assets:
+            log.debug("Blocked external (fetch disabled): %s", url)
+            return
+
+        if not is_allowed_external(url, external_domains):
+            log.info("[BLOCKED EXT] %s", url)
+            return
+
     if dest.exists():
         return
 
@@ -1217,8 +1228,14 @@ def crawl_site(
                     if is_ext:
                         if not download_external_assets:
                             continue
+
+                        if not is_allowed_external(abs_url, external_domains):
+                            log.debug("Blocked external (srcset): %s", abs_url)
+                            continue
+
                         if not parsed.path.lower().endswith(ASSET_EXTENSIONS):
                             continue
+
                         dest_path = cdn_local_path(parsed, root)
                     else:
                         dest_path = to_local_asset_path(parsed, root)
@@ -1250,8 +1267,14 @@ def crawl_site(
                         continue
 
                     is_ext = not is_internal(abs_url, root_netloc)
-                    if is_ext and not download_external_assets:
-                        continue
+
+                    if is_ext:
+                        if not download_external_assets:
+                            continue
+
+                        if not is_allowed_external(abs_url, external_domains):
+                            log.debug("Blocked external (inline style): %s", abs_url)
+                            continue
 
                     dest_path = (
                         cdn_local_path(parsed, root)
@@ -1288,8 +1311,14 @@ def crawl_site(
                         continue
 
                     is_ext = not is_internal(abs_url, root_netloc)
-                    if is_ext and not download_external_assets:
-                        continue
+
+                    if is_ext:
+                        if not download_external_assets:
+                            continue
+
+                        if not is_allowed_external(abs_url, external_domains):
+                            log.debug("Blocked external (<style>): %s", abs_url)
+                            continue
 
                     dest_path = (
                         cdn_local_path(parsed, root)
