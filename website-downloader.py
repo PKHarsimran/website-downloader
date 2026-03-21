@@ -967,9 +967,15 @@ def rewrite_links(
             treat_as_page = tag.name == "a" and attr == "href"
 
             if is_ext:
-                # Current policy: do NOT rewrite CDN links in HTML.
-                # (If you ever decide to fully offline CDN, this is the spot to change.)
-                continue
+                if not download_external_assets:
+                    continue
+                if not is_allowed_external(abs_url, external_domains):
+                    continue
+
+                # External assets should point to downloaded local CDN copy
+                if treat_as_page:
+                    continue
+                local_path = cdn_local_path(parsed, site_root)
             else:
                 local_path = (
                     to_local_path(parsed, site_root)
@@ -1006,11 +1012,18 @@ def rewrite_links(
 
                 is_ext = not is_internal(abs_url, root_netloc)
                 if is_ext:
-                    # Current policy: keep CDN srcset URLs unchanged
-                    new_entries.append(entry)
-                    continue
+                    if not download_external_assets:
+                        new_entries.append(entry)
+                        continue
 
-                local_path = to_local_asset_path(parsed, site_root)
+                    if not is_allowed_external(abs_url, external_domains):
+                        new_entries.append(entry)
+                        continue
+
+                    local_path = cdn_local_path(parsed, site_root)
+                else:
+                    local_path = to_local_asset_path(parsed, site_root)
+
                 rel = _rel_url(local_path, page_dir)
                 if parsed.fragment:
                     rel = f"{rel}#{parsed.fragment}"
@@ -1053,10 +1066,16 @@ def rewrite_links(
 
                 is_ext = not is_internal(abs_url, root_netloc)
                 if is_ext:
-                    # Current policy: keep CDN URLs unchanged in inline styles
-                    return m.group(0)
+                    if not download_external_assets:
+                        return m.group(0)
 
-                local_path = to_local_asset_path(parsed, site_root)
+                    if not is_allowed_external(abs_url, external_domains):
+                        return m.group(0)
+
+                    local_path = cdn_local_path(parsed, site_root)
+                else:
+                    local_path = to_local_asset_path(parsed, site_root)
+
                 rel = _rel_url(local_path, page_dir)
                 if parsed.fragment:
                     rel = f"{rel}#{parsed.fragment}"
