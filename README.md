@@ -118,62 +118,67 @@ python website-downloader.py \
 
 ```mermaid
 flowchart TD
-    A[Start CLI] --> B[Parse arguments with argparse]
-    B --> C[Validate URL destination max-pages threads and external options]
+    A[Start CLI] --> B[Parse CLI arguments]
+    B --> C[Validate inputs]
 
-    C --> D[Create requests session]
-    D --> E[Configure retries backoff headers and optional Brotli support]
+    subgraph Setup
+        C --> D[Create HTTP session]
+        D --> E[Configure retries headers backoff<br/>and optional Brotli support]
+        E --> F[Initialize crawl state]
+        F --> G[Seed queue with starting URL]
+    end
 
-    E --> F[Initialize crawl state]
-    F --> G[Queue starting URL]
-    G --> H[Begin breadth-first crawl]
+    G --> H[Start breadth-first crawl]
 
-    H --> I[Fetch HTML page]
-    I --> J{Page fetched successfully}
+    subgraph Crawl
+        H --> I[Fetch next HTML page]
+        I --> J{Fetch successful?}
+        J -- No --> K[Log warning or error]
+        J -- Yes --> M[Parse HTML with BeautifulSoup]
+    end
 
-    J -- No --> K[Log warning or error and continue]
-    K --> L{More pages in queue}
+    K --> L{More pages queued?}
 
-    J -- Yes --> M[Parse HTML with BeautifulSoup]
-    M --> N[Extract internal page links]
-    N --> O[Normalize URLs and remove fragments]
-    O --> P[Add new same-origin pages to crawl queue]
+    subgraph Discovery
+        M --> N[Extract page links]
+        N --> O[Normalize URLs and remove fragments]
+        O --> P[Queue unseen same-origin pages]
 
-    M --> Q[Extract assets and references]
-    Q --> R[Find src href data-src poster and srcset]
-    Q --> S[Find inline style URLs style blocks CSS URLs and imports]
-    Q --> T[Find meta images such as og:image and twitter:image]
-    Q --> U[Find selected static asset references in JS]
+        M --> Q[Extract asset references]
+        Q --> R[src href data-src poster srcset]
+        Q --> S[Inline style URLs CSS urls imports]
+        Q --> T[Meta images]
+        Q --> U[Selected JS asset references]
+    end
 
-    R --> V[Classify URLs]
+    R --> V[Classify discovered URLs]
     S --> V
     T --> V
     U --> V
 
-    V --> W{Internal or external asset}
+    V --> W{Asset type?}
+    W -- Internal --> X[Map to safe local path]
+    W -- External allowed --> Y[Map to cdn domain path]
+    W -- External not allowed --> Z[Keep original reference or skip]
 
-    W -- Internal --> X[Map URL to safe local path]
-    W -- External allowed --> Y[Store under cdn domain path]
-    W -- External not allowed --> Z[Leave original reference or skip]
-    Z --> AA[Continue parsing]
+    subgraph Download_and_Rewrite
+        X --> AB[Queue asset download]
+        Y --> AB
+        AB --> AC[Download assets with worker threads]
+        AC --> AD[Write files safely to disk]
+        AD --> AE[Apply sanitization hashing<br/>and long-path fallback]
 
-    X --> AB[Queue asset download]
-    Y --> AB
+        M --> AF[Rewrite references to local files]
+        AF --> AG[Adjust HTML for offline browsing]
+        AG --> AH[Remove integrity and crossorigin<br/>for localized external assets]
+        AH --> AI[Save rewritten HTML]
+    end
 
-    AB --> AC[Worker threads download assets concurrently]
-    AC --> AD[Write files safely to disk]
-    AD --> AE[Apply path sanitization hashing and long-path fallback]
-
-    M --> AF[Rewrite page references to local paths]
-    AF --> AG[Update HTML links for offline browsing]
-    AG --> AH[Remove integrity and crossorigin when localized external assets are used]
-
-    AH --> AI[Save rewritten HTML page locally]
-
+    Z --> AI
     AI --> L
     L -- Yes --> H
-    L -- No --> AJ[Post-process downloaded CSS and JS if needed]
-    AJ --> AK[Finalize logs and crawl summary]
+    L -- No --> AJ[Optional post-processing for CSS and JS]
+    AJ --> AK[Write logs and crawl summary]
     AK --> AL[Offline mirror ready]
 ```
 
