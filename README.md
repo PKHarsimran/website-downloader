@@ -119,20 +119,20 @@ python website-downloader.py \
 ```mermaid
 flowchart TD
     A[Start CLI] --> B[Parse arguments with argparse]
-    B --> C[Validate URL, destination, max-pages, threads, external options]
+    B --> C[Validate URL destination max-pages threads and external options]
 
     C --> D[Create requests session]
-    D --> E[Configure retries, backoff, headers, and optional Brotli support]
+    D --> E[Configure retries backoff headers and optional Brotli support]
 
     E --> F[Initialize crawl state]
     F --> G[Queue starting URL]
     G --> H[Begin breadth-first crawl]
 
     H --> I[Fetch HTML page]
-    I --> J{Page fetched successfully?}
+    I --> J{Page fetched successfully}
 
-    J -- No --> K[Log warning/error and continue]
-    K --> L{More pages in queue?}
+    J -- No --> K[Log warning or error and continue]
+    K --> L{More pages in queue}
 
     J -- Yes --> M[Parse HTML with BeautifulSoup]
     M --> N[Extract internal page links]
@@ -140,9 +140,9 @@ flowchart TD
     O --> P[Add new same-origin pages to crawl queue]
 
     M --> Q[Extract assets and references]
-    Q --> R[Find src, href, data-src, poster, srcset]
-    Q --> S[Find inline style url(...), style blocks, CSS url(...) and @import]
-    Q --> T[Find meta images like og:image and twitter:image]
+    Q --> R[Find src href data-src poster and srcset]
+    Q --> S[Find inline style URLs style blocks CSS URLs and imports]
+    Q --> T[Find meta images such as og:image and twitter:image]
     Q --> U[Find selected static asset references in JS]
 
     R --> V[Classify URLs]
@@ -150,10 +150,10 @@ flowchart TD
     T --> V
     U --> V
 
-    V --> W{Internal or external asset?}
+    V --> W{Internal or external asset}
 
     W -- Internal --> X[Map URL to safe local path]
-    W -- External allowed --> Y[Store under cdn/domain/...]
+    W -- External allowed --> Y[Store under cdn domain path]
     W -- External not allowed --> Z[Leave original reference or skip]
     Z --> AA[Continue parsing]
 
@@ -162,17 +162,17 @@ flowchart TD
 
     AB --> AC[Worker threads download assets concurrently]
     AC --> AD[Write files safely to disk]
-    AD --> AE[Apply path sanitization, hashing, and long-path fallback]
+    AD --> AE[Apply path sanitization hashing and long-path fallback]
 
     M --> AF[Rewrite page references to local paths]
     AF --> AG[Update HTML links for offline browsing]
-    AG --> AH[Remove integrity/crossorigin when localized external assets are used]
+    AG --> AH[Remove integrity and crossorigin when localized external assets are used]
 
     AH --> AI[Save rewritten HTML page locally]
 
     AI --> L
     L -- Yes --> H
-    L -- No --> AJ[Post-process downloaded CSS/JS if needed]
+    L -- No --> AJ[Post-process downloaded CSS and JS if needed]
     AJ --> AK[Finalize logs and crawl summary]
     AK --> AL[Offline mirror ready]
 ```
