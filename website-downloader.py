@@ -859,15 +859,15 @@ def rewrite_links(
     external_domains: Optional[set[str]] = None,
 ) -> None:
     """
-        Rewrite HTML so it can be opened offline.
+    Rewrite HTML so it can be opened offline.
 
-        Rules:
-        - Internal page links (<a href>) become local HTML file paths.
-        - Internal asset links (img/src, script/src, link/href, etc) become local asset paths.
-        - External asset links are rewritten to local cdn/... paths when
-            external downloading is enabled and the URL is allowed.
-        - External page links (for example <a href="https://...">) are kept unchanged.
-        - Remove <base href="..."> because it changes browser URL resolution offline.
+    Rules:
+    - Internal page links (<a href>) become local HTML file paths.
+    - Internal asset links (img/src, script/src, link/href, etc) become local asset paths.
+    - External asset links are rewritten to local cdn/... paths when
+        external downloading is enabled and the URL is allowed.
+    - External page links (for example <a href="https://...">) are kept unchanged.
+    - Remove <base href="..."> because it changes browser URL resolution offline.
     """
     root_netloc = _canonical_netloc(urlparse(page_url))
 
