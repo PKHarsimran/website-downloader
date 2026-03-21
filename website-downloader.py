@@ -864,8 +864,9 @@ def rewrite_links(
     Rules:
     - Internal page links (<a href>) become local HTML file paths.
     - Internal asset links (img/src, script/src, link/href, etc) become local asset paths.
-    - CDN/external links are kept unchanged in HTML (your current behavior).
-      NOTE: CSS/JS content rewriting can still localize CDN URLs if downloaded.
+    - External asset links are rewritten to local cdn/... paths when
+        external downloading is enabled and the URL is allowed.
+    - External page links (for example <a href="https://...">) are kept unchanged.
     - Remove <base href="..."> because it changes browser URL resolution offline.
     """
     root_netloc = _canonical_netloc(urlparse(page_url))
@@ -877,6 +878,11 @@ def rewrite_links(
 
     # Common attributes that contain URL-like values.
     url_attrs = {"src", "href", "data-src", "poster"}
+
+    def strip_sri_and_cors(tag) -> None:
+        for attr in ("integrity", "crossorigin"):
+            if tag.has_attr(attr):
+                del tag[attr]
 
     for tag in soup.find_all(True):
 
@@ -966,16 +972,18 @@ def rewrite_links(
             # Treat <a href> as a "page". Everything else is treated as an asset.
             treat_as_page = tag.name == "a" and attr == "href"
 
+            rewritten_external_asset = False
+
+            if is_ext and treat_as_page:
+                continue
+
             if is_ext:
                 if not download_external_assets:
                     continue
                 if not is_allowed_external(abs_url, external_domains):
                     continue
-
-                # External assets should point to downloaded local CDN copy
-                if treat_as_page:
-                    continue
                 local_path = cdn_local_path(parsed, site_root)
+                rewritten_external_asset = True
             else:
                 local_path = (
                     to_local_path(parsed, site_root)
@@ -987,6 +995,9 @@ def rewrite_links(
             if parsed.fragment:
                 rel = f"{rel}#{parsed.fragment}"
             tag[attr] = rel
+
+            if rewritten_external_asset and tag.name in {"script", "link"}:
+                strip_sri_and_cors(tag)
 
         # srcset="url1 1x, url2 2x" needs special parsing
         if tag.has_attr("srcset"):
