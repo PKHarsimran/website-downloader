@@ -114,6 +114,69 @@ python website-downloader.py \
 
 > **Removed:** The old `check_download.py` verifier is no longer required because the new downloader performs integrity checks (missing files, broken internal links) during the crawl and reports any issues directly in the log summary.
 
+## 🧭 How the Script Works
+
+```mermaid
+flowchart TD
+    A[Start CLI] --> B[Parse arguments with argparse]
+    B --> C[Validate URL, destination, max-pages, threads, external options]
+
+    C --> D[Create requests session]
+    D --> E[Configure retries, backoff, headers, and optional Brotli support]
+
+    E --> F[Initialize crawl state]
+    F --> G[Queue starting URL]
+    G --> H[Begin breadth-first crawl]
+
+    H --> I[Fetch HTML page]
+    I --> J{Page fetched successfully?}
+
+    J -- No --> K[Log warning/error and continue]
+    K --> L{More pages in queue?}
+
+    J -- Yes --> M[Parse HTML with BeautifulSoup]
+    M --> N[Extract internal page links]
+    N --> O[Normalize URLs and remove fragments]
+    O --> P[Add new same-origin pages to crawl queue]
+
+    M --> Q[Extract assets and references]
+    Q --> R[Find src, href, data-src, poster, srcset]
+    Q --> S[Find inline style url(...), style blocks, CSS url(...) and @import]
+    Q --> T[Find meta images like og:image and twitter:image]
+    Q --> U[Find selected static asset references in JS]
+
+    R --> V[Classify URLs]
+    S --> V
+    T --> V
+    U --> V
+
+    V --> W{Internal or external asset?}
+
+    W -- Internal --> X[Map URL to safe local path]
+    W -- External allowed --> Y[Store under cdn/domain/...]
+    W -- External not allowed --> Z[Leave original reference or skip]
+    Z --> AA[Continue parsing]
+
+    X --> AB[Queue asset download]
+    Y --> AB
+
+    AB --> AC[Worker threads download assets concurrently]
+    AC --> AD[Write files safely to disk]
+    AD --> AE[Apply path sanitization, hashing, and long-path fallback]
+
+    M --> AF[Rewrite page references to local paths]
+    AF --> AG[Update HTML links for offline browsing]
+    AG --> AH[Remove integrity/crossorigin when localized external assets are used]
+
+    AH --> AI[Save rewritten HTML page locally]
+
+    AI --> L
+    L -- Yes --> H
+    L -- No --> AJ[Post-process downloaded CSS/JS if needed]
+    AJ --> AK[Finalize logs and crawl summary]
+    AK --> AL[Offline mirror ready]
+```
+
 ## ✨ Recent Improvements
 
 ### ✅ Type Conversion Fix
