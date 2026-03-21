@@ -19,6 +19,7 @@ import requests
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
+from http.cookiejar import MozillaCookieJar
 
 HAS_BROTLI = find_spec("brotli") is not None or find_spec("brotlicffi") is not None
 
@@ -178,6 +179,47 @@ SESSION.mount("http://", HTTPAdapter(max_retries=RETRY_STRAT))
 SESSION.mount("https://", HTTPAdapter(max_retries=RETRY_STRAT))
 SESSION.headers.update(DEFAULT_HEADERS)
 log.debug("Accept-Encoding configured as: %s", SESSION.headers.get("Accept-Encoding"))
+
+
+def add_cookie_string_to_session(cookie_str: str) -> None:
+    """
+    Load cookies from a raw Cookie header string.
+
+    Example:
+        "sessionid=abc123; csrftoken=xyz456"
+    """
+    for part in cookie_str.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        name, value = part.split("=", 1)
+        SESSION.cookies.set(name.strip(), value.strip())
+
+
+def load_cookie_file(cookie_file: str) -> None:
+    """
+    Load cookies from a Netscape/Mozilla cookie jar export.
+    """
+    jar = MozillaCookieJar(cookie_file)
+    jar.load(ignore_discard=True, ignore_expires=True)
+
+    for cookie in jar:
+        SESSION.cookies.set_cookie(cookie)
+
+
+def add_header_to_session(header_value: str) -> None:
+    """
+    Add a custom request header.
+
+    Example:
+        "Authorization: Bearer abc123"
+    """
+    if ":" not in header_value:
+        raise ValueError(f"Invalid header format: {header_value}")
+
+    key, value = header_value.split(":", 1)
+    SESSION.headers[key.strip()] = value.strip()
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -712,6 +754,21 @@ def is_allowed_external(url: str, allowed_domains: Optional[set[str]]) -> bool:
     return any(host == d or host.endswith("." + d) for d in allowed_domains)
 
 
+def should_skip_page_url(url: str) -> bool:
+    """
+    Skip obvious session-destroying or unwanted portal routes.
+    """
+    lowered = url.lower()
+    blocked_parts = (
+        "/logout",
+        "/signout",
+        "/logoff",
+        "/sign-off",
+        "/wp-login.php?action=logout",
+    )
+    return any(part in lowered for part in blocked_parts)
+
+
 # ---------------------------------------------------------------------------
 # Fetchers
 # ---------------------------------------------------------------------------
@@ -725,6 +782,22 @@ def fetch_html(url: str) -> Optional[BeautifulSoup]:
     """
     try:
         resp = SESSION.get(url, timeout=TIMEOUT)
+
+        if resp.status_code in (401, 403):
+            log.warning(
+                "Auth failed for %s (HTTP %s). Try --cookie-file, --cookie, or --header.",
+                url,
+                resp.status_code,
+            )
+
+        final_url = str(resp.url).lower()
+        if any(x in final_url for x in ("/login", "/signin", "/sign-in", "/auth")):
+            log.warning(
+                "Possible redirect to login page while fetching %s -> %s",
+                url,
+                resp.url,
+            )
+
         resp.raise_for_status()
         return BeautifulSoup(resp.text, "html.parser")
     except Exception as exc:  # noqa: BLE001
@@ -766,6 +839,14 @@ def fetch_binary(
 
     try:
         resp = SESSION.get(url, timeout=TIMEOUT, stream=True)
+
+        if resp.status_code in (401, 403):
+            log.warning(
+                "Auth failed for asset %s (HTTP %s). Check cookies/headers/session age.",
+                url,
+                resp.status_code,
+            )
+
         resp.raise_for_status()
 
         create_dir(dest.parent)
@@ -1258,6 +1339,10 @@ def crawl_site(
                 )
 
                 if is_page:
+                    if should_skip_page_url(abs_url):
+                        log.info("Skipping session-sensitive page: %s", abs_url)
+                        continue
+
                     if abs_url not in seen_pages and abs_url not in queued_pages:
                         q_pages.put(abs_url)
                         queued_pages.add(abs_url)
@@ -1529,8 +1614,11 @@ def parse_args() -> argparse.Namespace:
 
     --download-external-assets:
       When enabled, we ALSO download assets from other hosts (CDNs).
-      Your HTML rewriting currently keeps CDN URLs unchanged in HTML,
-      but CSS/JS rewriting can still localize them if those files are downloaded.
+
+    Authenticated crawling:
+      Protected portals usually require valid session cookies and/or custom
+      headers. Browser login does not automatically carry over to requests.
+      These flags let you import that auth context into the crawler session.
     """
     p = argparse.ArgumentParser(
         description="Recursively mirror a website for offline use.",
@@ -1569,6 +1657,35 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Whitelist of external domains to download from (implies external download).",
     )
+    p.add_argument(
+        "--cookie",
+        action="append",
+        default=[],
+        help=(
+            "Raw cookie string to add to the session. "
+            'Can be used multiple times. Example: --cookie "sessionid=abc; csrftoken=xyz"'
+        ),
+    )
+    p.add_argument(
+        "--cookie-file",
+        default=None,
+        help="Path to Netscape/Mozilla cookie file exported from a browser extension.",
+    )
+    p.add_argument(
+        "--header",
+        action="append",
+        default=[],
+        help=(
+            "Custom header to include in requests. Can be used multiple times. "
+            'Example: --header "Authorization: Bearer TOKEN"'
+        ),
+    )
+    p.add_argument(
+        "--timeout",
+        type=int,
+        default=TIMEOUT,
+        help="Per-request timeout in seconds.",
+    )
     return p.parse_args()
 
 
@@ -1581,6 +1698,8 @@ if __name__ == "__main__":
     if args.threads < 1:
         log.error("--threads must be >= 1")
         sys.exit(2)
+
+    TIMEOUT = args.timeout
 
     # start URL + output root folder
     host = args.url
@@ -1598,6 +1717,27 @@ if __name__ == "__main__":
     download_external_assets = (
         args.download_external_assets or args.external_domains is not None
     )
+
+    # Load authenticated session inputs before crawl starts
+    try:
+        if args.cookie_file:
+            load_cookie_file(args.cookie_file)
+            log.info("Loaded cookies from %s", args.cookie_file)
+
+        for cookie_str in args.cookie:
+            add_cookie_string_to_session(cookie_str)
+            log.info("Loaded cookie string into session")
+
+        for header_value in args.header:
+            add_header_to_session(header_value)
+            log.info(
+                "Added custom header: %s",
+                header_value.split(":", 1)[0].strip(),
+            )
+
+    except Exception as exc:  # noqa: BLE001
+        log.error("Failed to configure authenticated session: %s", exc)
+        sys.exit(2)
 
     # Kick off crawl
     crawl_site(
