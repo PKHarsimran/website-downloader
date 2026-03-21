@@ -1,4 +1,4 @@
-# 🌐 Website Downloader CLI  
+# 🌐 Website Downloader CLI
 
 [![CI – Website Downloader](https://github.com/PKHarsimran/website-downloader/actions/workflows/python-app.yml/badge.svg)](https://github.com/PKHarsimran/website-downloader/actions/workflows/python-app.yml)
 [![Lint & Style](https://github.com/PKHarsimran/website-downloader/actions/workflows/lint.yml/badge.svg)](https://github.com/PKHarsimran/website-downloader/actions/workflows/lint.yml)
@@ -6,44 +6,79 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Code style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-Website Downloader CLI is a lightweight, pure-Python site mirroring tool that creates a fully browsable offline copy of any publicly accessible website.
+Website Downloader CLI is a lightweight, pure-Python website mirroring tool that creates a browsable offline copy of a site by crawling pages, downloading assets, and rewriting references to local files.
 
-* Recursively crawls every same-origin link (including “pretty” `/about/` URLs)
-* Downloads **all internal assets** (images, CSS, JS, fonts, etc.)
-* Optional support for downloading **external CDN assets** for complete offline mirroring
-* Rewrites links so pages load correctly from your local filesystem
-* Streams files concurrently using worker threads for faster downloads
-* Uses automatic retry and back-off for unstable connections
-* Generates a clean, organized directory structure (`example_com/index.html`, `example_com/about/index.html`, …)
-* Stores CDN resources under a structured path (`cdn/<domain>/...`)
-* Safely handles extremely long filenames using hashing and graceful fallbacks
-* Skips non-fetchable schemes (`mailto:`, `tel:`, `data:`, `javascript:`) to avoid crawler errors
-> Perfect for web archiving, pentesting labs, long flights, or just poking around a site without an internet connection.
+It is designed for clean offline browsing, lab testing, archiving, and migration scenarios where you want a local copy of a public site or portal structure.
 
+> Great for web archiving, offline backups, pentesting labs, migration prep, and reviewing a site without an internet connection.
+
+---
+
+## ✨ Features
+
+- Recursively crawls same-origin HTML pages
+- Downloads internal assets such as:
+  - images
+  - CSS
+  - JavaScript
+  - fonts
+  - media files
+  - manifests and web assets
+- Rewrites offline references for:
+  - `<a href>`
+  - `<img src>`
+  - `<script src>`
+  - `<link href>`
+  - `data-src`
+  - `poster`
+  - `srcset`
+  - inline `style="url(...)"`
+  - inline `<style>` blocks
+  - CSS `url(...)` and `@import`
+  - common static asset URLs inside JS strings
+- Optional external asset downloading for CDN/off-site resources
+- Supports domain whitelisting for controlled external downloads
+- Stores external resources under `cdn/<domain>/...`
+- Handles protocol-relative URLs like `//cdn.example.com/file.css`
+- Rewrites social preview assets like `og:image` and `twitter:image`
+- Removes problematic `integrity` and `crossorigin` attributes when external assets are localized
+- Safely skips non-fetchable schemes like:
+  - `mailto:`
+  - `tel:`
+  - `sms:`
+  - `javascript:`
+  - `data:`
+  - `geo:`
+  - `blob:`
+  - `about:`
+- Uses retry and backoff for unstable connections
+- Downloads assets concurrently with worker threads
+- Hardens paths with sanitization, hashing, and long-path fallbacks
+
+---
 
 ## ❤️ Support This Project
 
 If you find this tool useful, consider supporting the project:
 
-[Donate via
-PayPal](https://www.paypal.com/donate/?business=MVEWG3QAX6UBC&no_recurring=1&item_name=Github+Project+-+Website+downloader&currency_code=CAD)
+[Donate via PayPal](https://www.paypal.com/donate/?business=MVEWG3QAX6UBC&no_recurring=1&item_name=Github+Project+-+Website+downloader&currency_code=CAD)
 
 ---
 
 ## 🚀 Quick Start
 
 ```bash
-# 1. Grab the code
+# 1. Clone the repo
 git clone https://github.com/PKHarsimran/website-downloader.git
 cd website-downloader
 
-# 2. Install dependencies (only two runtime libs!)
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Mirror a site – no prompts needed
+# 3. Mirror a site
 python website-downloader.py \
-    --url https://harsim.ca \
-    --destination harsim_ca_backup \
+    --url https://example.com \
+    --destination example_backup \
     --max-pages 100 \
     --threads 8
 ```
@@ -54,65 +89,112 @@ python website-downloader.py \
 
 | Library | Purpose |
 |----------|----------|
-| **requests** + **urllib3.Retry** | HTTP client with automatic retry, backoff, and persistent session handling |
-| **BeautifulSoup (bs4)** | Parses HTML and extracts `<a>`, `<img>`, `<script>`, and `<link>` elements |
-| **argparse** | Provides structured CLI argument parsing and validation |
-| **logging** | Dual console + file logging with crawl progress and summary metrics |
-| **threading** & **queue** | Concurrent asset downloading via lightweight worker pool |
-| **pathlib** & **os** | Cross-platform filesystem management and safe directory creation |
-| **urllib.parse** | URL parsing, normalization, and safe internal link rewriting |
-| **hashlib (sha256)** | Generates stable hashes for long filenames and query-string collisions |
-| **posixpath** | Normalizes URL paths while preventing traversal |
-| **time** | Measures crawl duration and per-page performance |
-| **sys** | Handles CLI exit codes and stream output management |
-| **re** | Normalizes path segments and collapses malformed multi-dot filenames |
+| **requests** + **urllib3.Retry** | Handles HTTP downloads with session reuse, retry support, and backoff for unstable connections |
+| **BeautifulSoup (bs4)** | Parses HTML and extracts links, assets, metadata, and crawl targets from tags like `<a>`, `<img>`, `<script>`, `<link>`, and `<meta>` |
+| **argparse** | Provides CLI argument parsing and validation for flags like `--url`, `--threads`, `--max-pages`, and external asset options |
+| **logging** | Provides structured console and file logging for crawl progress, warnings, errors, and summary information |
+| **threading** & **queue** | Powers concurrent downloading of assets through a worker-thread queue model |
+| **pathlib** & **os** | Manages filesystem-safe output paths, directory creation, and cross-platform file writing |
+| **urllib.parse** | Resolves relative URLs, normalizes paths, strips fragments, and helps rewrite links safely for offline browsing |
+| **hashlib (sha256)** | Generates stable hashed filenames when paths are too long or query strings could cause filename collisions |
+| **posixpath** | Normalizes URL-style paths consistently while helping prevent malformed or unsafe path construction |
+| **time** | Measures crawl timing and runtime performance |
+| **sys** | Handles CLI exits and runtime stream control |
+| **re** | Supports path cleanup, filename normalization, CSS/JS asset extraction, and malformed multi-dot filename cleanup |
 
 ## 🗂️ Project Structure
 
 | Path | What it is | Key features |
 |------|------------|--------------|
-| `website_downloader.py` | **Single-entry CLI** that performs the entire crawl *and* link-rewriting pipeline. | • Persistent `requests.Session` with automatic retries<br>• Breadth-first crawl capped by `--max-pages` (default = 50)<br>• Thread-pool (configurable via `--threads`, default = 6) to fetch images/CSS/JS in parallel<br>• Robust link rewriting so every internal URL works offline (pretty-URL folders ➜ `index.html`, plain paths ➜ `.html`)<br>• Smart output folder naming (`example.com` → `example_com`)<br>• Colourised console + file logging with per-page latency and crawl summary |
-| `requirements.txt` | Minimal dependency pin-list. Only **`requests`** and **`beautifulsoup4`** are third-party; everything else is Python ≥ 3.10 std-lib. |
-| `web_scraper.log` | Auto-generated run log (rotates/overwrites on each invocation). Useful for troubleshooting or audit trails. |
-| `README.md` | The document you’re reading – quick-start, flags, and architecture notes. |
-| *(output folder)* | Created at runtime (`example_com/ …`) – mirrors the remote directory tree with `index.html` stubs and all static assets. |
+| `website-downloader.py` | **Main CLI script** that handles crawling, downloading, and offline link rewriting. | • Shared `requests.Session` with retry and backoff handling<br>• Breadth-first crawl controlled by `--max-pages`<br>• Worker-thread queue for concurrent asset downloads via `--threads`<br>• Rewrites internal links for offline browsing<br>• Supports external asset downloading and domain whitelisting<br>• Handles CSS, inline styles, `srcset`, meta images, and selected JS asset references |
+| `requirements.txt` | Minimal runtime dependency list for the project. | • Includes only core third-party packages needed to run the downloader<br>• Keeps installation simple and lightweight |
+| `web_scraper.log` | Auto-generated runtime log file created during execution. | • Captures crawl progress, warnings, errors, and summary details<br>• Useful for troubleshooting failed downloads or rewrite issues |
+| `README.md` | Project documentation and usage guide. | • Covers installation, usage examples, features, flags, and behavior notes |
+| *(output folder)* | Generated at runtime to store the mirrored website locally. | • Saves HTML pages, internal assets, and optionally external CDN assets<br>• Preserves a browsable offline structure such as `index.html`, subfolders, and `cdn/<domain>/...` paths |
 
 > **Removed:** The old `check_download.py` verifier is no longer required because the new downloader performs integrity checks (missing files, broken internal links) during the crawl and reports any issues directly in the log summary.
 
 ## ✨ Recent Improvements
 
 ### ✅ Type Conversion Fix
-Resolved a `TypeError` caused by `int(..., 10)` when non-string arguments were passed, improving input robustness and CLI reliability.
+Resolved a `TypeError` caused by `int(..., 10)` when non-string arguments were passed, improving argument handling and CLI reliability.
 
 ### ✅ Safer Path Handling
-Added intelligent path shortening and hashing for long filenames to prevent  
-`OSError: [Errno 36] File name too long` errors across different operating systems.
+Added path shortening, sanitization, and hashed fallbacks to prevent long-path and invalid filename issues across different operating systems.
 
 ### ✅ Improved CLI Experience
-Rebuilt argument parsing using `argparse` for cleaner syntax, better validation, and clearer error messages.
+Improved argument parsing and validation with `argparse`, making the tool easier to run and error messages clearer.
 
 ### ✅ Code Quality & Linting
-Standardized formatting using **Black**, **isort**, and **Ruff**.  
-The project now passes all CI formatting and lint checks.
+Standardized formatting and code quality checks using **Black**, **isort**, and **Ruff**.  
+The project now aligns better with CI linting and style validation.
 
 ### ✅ Logging & Stability
-Improved structured logging, retry handling, and safe-write fallbacks to make crawls more resilient against network failures and filesystem issues.
+Improved structured logging, retry handling, session reuse, and safer write fallbacks to make crawls more resilient against network and filesystem issues.
 
 ### ✅ Skip Non-Fetchable Schemes
-The crawler now safely skips `mailto:`, `tel:`, `javascript:`, `data:`, `geo:`, and `blob:` links instead of attempting to download them.  
-This prevents `requests.exceptions.InvalidSchema` errors while preserving those links in saved HTML.
+The crawler now safely skips unsupported schemes such as `mailto:`, `tel:`, `sms:`, `javascript:`, `data:`, `geo:`, `blob:`, and `about:` instead of attempting to download them.  
+This helps prevent invalid schema errors while preserving those references in saved HTML where appropriate.
 
-### ✅ Improved URL Resolution (CDN-Safe Handling)
-Fixed incorrect URL normalization that previously caused malformed asset paths and 404 errors.
+### ✅ Improved URL Resolution
+Fixed URL normalization issues that previously caused malformed asset paths and broken downloads.
 
-- URLs are resolved before sanitization  
-- Protocol-relative URLs (`//cdn.domain.com/file.css`) are correctly converted to `https://`  
-- Prevents broken paths like `https://example.com/npm/...`  
-- Reduces asset download failures on modern CDN-heavy websites
+- URLs are resolved before sanitization
+- Protocol-relative URLs like `//cdn.domain.com/file.css` are correctly converted
+- Reduces malformed paths and asset fetch failures on CDN-heavy websites
 
-### ✅ Optional CDN Asset Downloading
-Added a new CLI option to download external static assets for complete offline site mirroring.
-`--download-external-assets`
+### ✅ Optional External Asset Downloading
+Added support for downloading external static assets for more complete offline mirroring.
+
+**New flag:** `--download-external-assets`
+
+When enabled:
+
+- External CSS, JS, fonts, images, and similar static assets can be downloaded
+- External files are stored under `cdn/<domain>/...`
+- Supported references are rewritten to local copies for offline use
+
+### ✅ External Domain Whitelisting
+Added support for `--external-domains` to allow controlled downloading of external assets from approved domains only.
+
+This makes external mirroring more precise and avoids pulling unnecessary third-party content.
+
+### ✅ Expanded Rewrite Coverage
+Improved offline rewriting support across more HTML and asset reference types, including:
+
+- `src`
+- `href`
+- `data-src`
+- `poster`
+- `srcset`
+- inline `style="url(...)"`
+- inline `<style>` blocks
+- CSS `url(...)` and `@import`
+- common static asset references in downloaded JS
+- `og:image`
+- `twitter:image`
+
+### ✅ Broader HTML Resource Support
+Added support for more resource-bearing `<link>` types and metadata used by modern sites, including:
+
+- `stylesheet`
+- `icon`
+- `shortcut`
+- `apple-touch-icon`
+- `preload`
+- `modulepreload`
+- `manifest`
+
+### ✅ Better Offline Compatibility for Localized External Assets
+When external assets are downloaded and rewritten locally, problematic attributes such as `integrity` and `crossorigin` are removed where needed to help prevent offline loading issues.
+
+### ✅ Enhanced Path Normalization
+Improved filename and path normalization to reduce filesystem edge cases:
+
+- Decodes URL-encoded segments
+- Trims unnecessary whitespace
+- Collapses malformed multi-dot filenames
+- Preserves traversal protection and hashing safeguards
 
 When enabled:
 
