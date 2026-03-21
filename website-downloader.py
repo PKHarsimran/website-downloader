@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from hashlib import sha256
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Optional
 from urllib.parse import ParseResult, unquote, urljoin, urlparse
@@ -18,6 +19,8 @@ import requests
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
+
+HAS_BROTLI = find_spec("brotli") is not None or find_spec("brotlicffi") is not None
 
 # ---------------------------------------------------------------------------
 # Config / constants
@@ -73,6 +76,8 @@ JS_ABS_URL_RE = re.compile(
 )
 
 # Default headers can help with sites that block "non-browser" clients.
+_ACCEPT_ENCODING = "gzip, deflate, br" if HAS_BROTLI else "gzip, deflate"
+
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -84,7 +89,7 @@ DEFAULT_HEADERS = {
         "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
     ),
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Encoding": _ACCEPT_ENCODING,
     "Connection": "keep-alive",
     "Upgrade-Insecure-Requests": "1",
 }
@@ -172,7 +177,7 @@ RETRY_STRAT = Retry(
 SESSION.mount("http://", HTTPAdapter(max_retries=RETRY_STRAT))
 SESSION.mount("https://", HTTPAdapter(max_retries=RETRY_STRAT))
 SESSION.headers.update(DEFAULT_HEADERS)
-
+log.debug("Accept-Encoding configured as: %s", SESSION.headers.get("Accept-Encoding"))
 
 # ---------------------------------------------------------------------------
 # Helpers
