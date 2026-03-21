@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from hashlib import sha256
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Optional
 from urllib.parse import ParseResult, unquote, urljoin, urlparse
@@ -18,8 +19,6 @@ import requests
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
-
-from importlib.util import find_spec
 
 HAS_BROTLI = find_spec("brotli") is not None or find_spec("brotlicffi") is not None
 
