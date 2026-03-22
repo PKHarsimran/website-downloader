@@ -140,6 +140,37 @@ RESOURCE_LINK_RELS = {
     "manifest",
 }
 
+PAGE_EXTENSIONS = {
+    "",
+    ".html",
+    ".htm",
+    ".php",
+    ".asp",
+    ".aspx",
+    ".jsp",
+    ".jspx",
+    ".cfm",
+    ".cgi",
+    ".do",
+    ".action",
+}
+
+NON_HTML_DOWNLOAD_EXTENSIONS = {
+    ".pdf",
+    ".zip",
+    ".rar",
+    ".7z",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".ppt",
+    ".pptx",
+    ".csv",
+    ".xml",
+    ".txt",
+}
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -756,7 +787,7 @@ def is_allowed_external(url: str, allowed_domains: Optional[set[str]]) -> bool:
 
 def should_skip_page_url(url: str) -> bool:
     """
-    Skip obvious session-destroying or unwanted portal routes.
+    Skip obvious session-destroying or auth-only routes.
     """
     lowered = url.lower()
     blocked_parts = (
@@ -765,8 +796,76 @@ def should_skip_page_url(url: str) -> bool:
         "/logoff",
         "/sign-off",
         "/wp-login.php?action=logout",
+        "/login",
+        "/signin",
+        "/sign-in",
+        "/forgotpassword",
+        "/forgot-password",
+        "/resetpassword",
+        "/reset-password",
     )
     return any(part in lowered for part in blocked_parts)
+
+
+LOGIN_HINTS = (
+    "/login",
+    "/signin",
+    "/sign-in",
+    "/forgotpassword",
+    "/forgot-password",
+    "/resetpassword",
+    "/reset-password",
+)
+
+
+def is_login_like_url(url: str) -> bool:
+    lowered = url.lower()
+    return any(x in lowered for x in LOGIN_HINTS)
+
+
+def is_probable_page_url(tag, abs_url: str, root_netloc: str) -> bool:
+    """
+    Decide whether a discovered URL should be crawled as an HTML page.
+    """
+    if not is_internal(abs_url, root_netloc):
+        return False
+
+    parsed = urlparse(abs_url)
+    suffix = Path(parsed.path).suffix.lower()
+
+    if suffix in ASSET_EXTENSIONS:
+        return False
+
+    if suffix in NON_HTML_DOWNLOAD_EXTENSIONS:
+        return False
+
+    return suffix in PAGE_EXTENSIONS or parsed.path.endswith("/") or not suffix
+
+
+def extract_candidate_page_links(tag) -> list[str]:
+    """
+    Pull page-like links from common CMS / JS menu patterns.
+    """
+    results = []
+
+    for attr in ("href", "data-href", "data-url", "data-link", "data-target"):
+        value = str(tag.get(attr, "")).strip()
+        if value:
+            results.append(value)
+
+    onclick = str(tag.get("onclick", "")).strip()
+    if onclick:
+        patterns = [
+            r"""location(?:\.href)?\s*=\s*['"]([^'"]+)['"]""",
+            r"""window\.open\(\s*['"]([^'"]+)['"]""",
+            r"""document\.location(?:\.href)?\s*=\s*['"]([^'"]+)['"]""",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, onclick, re.IGNORECASE)
+            if match:
+                results.append(match.group(1))
+
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -778,7 +877,8 @@ def fetch_html(url: str) -> Optional[BeautifulSoup]:
     """
     Download an HTML page and return a BeautifulSoup tree.
 
-    We return None on error so the crawler can continue on failures.
+    Returns None when the request clearly falls back to a login page so we
+    do not save the login page as if it were the protected page.
     """
     try:
         resp = SESSION.get(url, timeout=TIMEOUT)
@@ -789,17 +889,39 @@ def fetch_html(url: str) -> Optional[BeautifulSoup]:
                 url,
                 resp.status_code,
             )
+            return None
 
-        final_url = str(resp.url).lower()
-        if any(x in final_url for x in ("/login", "/signin", "/sign-in", "/auth")):
+        final_url = str(resp.url)
+        final_url_lower = final_url.lower()
+        original_url_lower = url.lower()
+
+        redirected_to_login = (
+            final_url_lower != original_url_lower
+            and is_login_like_url(final_url_lower)
+            and not is_login_like_url(original_url_lower)
+        )
+
+        if redirected_to_login:
             log.warning(
-                "Possible redirect to login page while fetching %s -> %s",
+                "Redirected to login while fetching %s -> %s",
                 url,
                 resp.url,
             )
+            return None
+
+        if is_login_like_url(final_url_lower) and not is_login_like_url(
+            original_url_lower
+        ):
+            log.warning(
+                "Possible login/auth page received instead of protected page for %s -> %s",
+                url,
+                resp.url,
+            )
+            return None
 
         resp.raise_for_status()
         return BeautifulSoup(resp.text, "html.parser")
+
     except Exception as exc:  # noqa: BLE001
         log.warning("HTTP error for %s – %s", url, exc)
         return None
@@ -1290,10 +1412,12 @@ def crawl_site(
         t.start()
 
     start_time = time.time()
-    PAGE_SUFFIXES = {"", ".html", ".htm"}
 
     while not q_pages.empty() and len(seen_pages) < max_pages:
         page_url = canonicalize_url(q_pages.get())
+        if should_skip_page_url(page_url) or is_login_like_url(page_url):
+            log.info("Skipping auth/session page: %s", page_url)
+            continue
         if page_url in seen_pages:
             continue
 
@@ -1309,6 +1433,35 @@ def crawl_site(
         # 2) enqueue assets referenced via src/href/data-src/poster/srcset/style/<style>
         for tag in soup.find_all(True):
 
+            # Discover candidate page links from normal anchors and CMS/JS menus
+            for candidate_raw in extract_candidate_page_links(tag):
+                candidate = _protocol_fix(candidate_raw, page_url)
+
+                if (
+                    not candidate
+                    or candidate.startswith("#")
+                    or is_non_fetchable(candidate)
+                    or not is_httpish(candidate)
+                ):
+                    continue
+
+                abs_candidate = normalize_url(canonicalize_url(candidate, page_url))
+
+                if should_skip_page_url(abs_candidate) or is_login_like_url(
+                    abs_candidate
+                ):
+                    log.info("Skipping session-sensitive page: %s", abs_candidate)
+                    continue
+
+                if is_probable_page_url(tag, abs_candidate, root_netloc):
+                    if (
+                        abs_candidate not in seen_pages
+                        and abs_candidate not in queued_pages
+                    ):
+                        q_pages.put(abs_candidate)
+                        queued_pages.add(abs_candidate)
+                        log.debug("Queue page: %s", abs_candidate)
+
             # Common URL-bearing attributes
             for attr in ("src", "href", "data-src", "poster"):
                 if not tag.has_attr(attr):
@@ -1316,6 +1469,9 @@ def crawl_site(
 
                 link_raw = str(tag.get(attr, "")).strip()
                 if not link_raw:
+                    continue
+
+                if tag.name == "a" and attr == "href":
                     continue
 
                 link = _protocol_fix(link_raw, page_url)
@@ -1329,24 +1485,6 @@ def crawl_site(
                 abs_url = normalize_url(canonicalize_url(link, page_url))
                 parsed = urlparse(abs_url)
                 is_ext = not is_internal(abs_url, root_netloc)
-
-                # Only crawl internal HTML pages from <a href=...>
-                suffix = Path(parsed.path).suffix.lower()
-                is_page = (
-                    tag.name == "a"
-                    and not is_ext
-                    and (parsed.path.endswith("/") or suffix in PAGE_SUFFIXES)
-                )
-
-                if is_page:
-                    if should_skip_page_url(abs_url):
-                        log.info("Skipping session-sensitive page: %s", abs_url)
-                        continue
-
-                    if abs_url not in seen_pages and abs_url not in queued_pages:
-                        q_pages.put(abs_url)
-                        queued_pages.add(abs_url)
-                    continue
 
                 # Otherwise treat it as an asset candidate.
                 if is_ext:
