@@ -274,14 +274,6 @@ When enabled:
 
 This allows mirrored websites to function fully offline even when they rely on external CDNs.
 
-### ✅ Enhanced Path Normalization
-Improved filename normalization to reduce filesystem edge cases:
-
-- Decodes URL-encoded segments (`%20` → space)
-- Trims unnecessary whitespace
-- Collapses accidental multi-dot filenames (`file....jpg` → `file.jpg`)
-- Maintains traversal protection and hashing safeguards
-
 ------------------------------------------------------------------------
 
 
