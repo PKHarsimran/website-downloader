@@ -39,6 +39,7 @@ It is designed for clean offline browsing, lab testing, archiving, and migration
 - Optional external asset downloading for CDN/off-site resources
 - Supports domain whitelisting for controlled external downloads
 - Stores external resources under `cdn/<domain>/...`
+- Supports authenticated crawling with `--cookie` and `--cookie-file`
 - Handles protocol-relative URLs like `//cdn.example.com/file.css`
 - Rewrites social preview assets like `og:image` and `twitter:image`
 - Removes problematic `integrity` and `crossorigin` attributes when external assets are localized
@@ -81,7 +82,21 @@ python website-downloader.py \
     --destination example_backup \
     --max-pages 100 \
     --threads 8
+
+# 4. Mirror a protected site using a cookie file
+python website-downloader.py \
+  --url https://intranet.example.com \
+  --destination example_backup \
+  --cookie-file example-cookie.txt
 ```
+
+The sample cookie file uses simple header syntax:
+
+```text
+sessionid=abc123; csrftoken=xyz789
+```
+
+You can rename `example-cookie.txt` to any other file name if you prefer. The downloader reads the cookie values from that file and sends them with the crawl session.
 
 ---
 
@@ -109,6 +124,7 @@ python website-downloader.py \
 | `website-downloader.py` | **Main CLI script** that handles crawling, downloading, and offline link rewriting. | • Shared `requests.Session` with retry and backoff handling<br>• Breadth-first crawl controlled by `--max-pages`<br>• Worker-thread queue for concurrent asset downloads via `--threads`<br>• Rewrites internal links for offline browsing<br>• Supports external asset downloading and domain whitelisting<br>• Handles CSS, inline styles, `srcset`, meta images, and selected JS asset references |
 | `requirements.txt` | Minimal runtime dependency list for the project. | • Includes only core third-party packages needed to run the downloader<br>• Keeps installation simple and lightweight |
 | `web_scraper.log` | Auto-generated runtime log file created during execution. | • Captures crawl progress, warnings, errors, and summary details<br>• Useful for troubleshooting failed downloads or rewrite issues |
+| `example-cookie.txt` | Sample cookie file for authenticated crawling. | • Shows the expected `name=value; name2=value2` format for `--cookie-file` |
 | `README.md` | Project documentation and usage guide. | • Covers installation, usage examples, features, flags, and behavior notes |
 | *(output folder)* | Generated at runtime to store the mirrored website locally. | • Saves HTML pages, internal assets, and optionally external CDN assets<br>• Preserves a browsable offline structure such as `index.html`, subfolders, and `cdn/<domain>/...` paths |
 
@@ -226,6 +242,13 @@ When enabled:
 Added support for `--external-domains` to allow controlled downloading of external assets from approved domains only.
 
 This makes external mirroring more precise and avoids pulling unnecessary third-party content.
+
+### ✅ Authenticated Crawling
+Added optional cookie support so protected pages can be mirrored when you already have a valid session.
+
+- `--cookie NAME=VALUE` accepts one or more cookies directly on the command line
+- `--cookie-file FILE` reads cookies from a file like `example-cookie.txt`
+- Cookie input uses simple header syntax such as `sessionid=abc123; csrftoken=xyz789`
 
 ### ✅ Expanded Rewrite Coverage
 Improved offline rewriting support across more HTML and asset reference types, including:

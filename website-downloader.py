@@ -1523,6 +1523,21 @@ def make_root(url: str, custom: Optional[str]) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def parse_cookie_header(cookie_header: str) -> dict[str, str]:
+    """
+    Parse a cookie header string like "key1=val1; key2=val2" into a dict.
+    """
+    cookies: dict[str, str] = {}
+    for part in re.split(r";\s*", cookie_header.strip()):
+        if not part:
+            continue
+        if "=" not in part:
+            raise ValueError(f"Invalid cookie entry: {part}")
+        name, value = part.split("=", 1)
+        cookies[name.strip()] = value.strip()
+    return cookies
+
+
 def parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments.
@@ -1569,6 +1584,26 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Whitelist of external domains to download from (implies external download).",
     )
+    p.add_argument(
+        "--cookie",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help=(
+            "Set a cookie to send with all requests. "
+            "Repeat for multiple cookies, e.g. --cookie sessionid=abc --cookie csrftoken=xyz."
+        ),
+    )
+    p.add_argument(
+        "--cookie-file",
+        action="append",
+        default=[],
+        metavar="FILE",
+        help=(
+            "Read cookies from a file containing cookie header syntax like "
+            "key1=val1; key2=val2;. Can be repeated."
+        ),
+    )
     return p.parse_args()
 
 
@@ -1598,6 +1633,32 @@ if __name__ == "__main__":
     download_external_assets = (
         args.download_external_assets or args.external_domains is not None
     )
+
+    # Process cookies from command line and cookie files, and add them to the session.
+    if args.cookie or args.cookie_file:
+        cookie_dict: dict[str, str] = {}
+
+        for cookie in args.cookie:
+            try:
+                cookie_dict.update(parse_cookie_header(cookie))
+            except ValueError as exc:
+                log.error("Invalid cookie value: %s", exc)
+                sys.exit(2)
+
+        for cookie_path in args.cookie_file:
+            try:
+                raw = Path(cookie_path).expanduser().read_text(encoding="utf-8").strip()
+            except Exception as exc:
+                log.error("Cannot read cookie file %s: %s", cookie_path, exc)
+                sys.exit(2)
+            try:
+                cookie_dict.update(parse_cookie_header(raw))
+            except ValueError as exc:
+                log.error("Invalid cookie file %s: %s", cookie_path, exc)
+                sys.exit(2)
+
+        SESSION.cookies.update(cookie_dict)
+        log.debug("Added cookies to session: %s", list(cookie_dict.keys()))
 
     # Kick off crawl
     crawl_site(
