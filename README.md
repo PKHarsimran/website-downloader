@@ -62,7 +62,7 @@ It is designed for clean offline browsing, lab testing, archiving, and migration
 
 If you find this tool useful, consider supporting the project:
 
-[Donate via PayPal](https://www.paypal.com/donate/?business=MVEWG3QAX6UBC&no_recurring=1&item_name=Github+Project+-+Website+downloader&currency_code=CAD)
+[Donate via PayPal](https://www.paypal.com/donate/?business=PJVPSXG6V4CUG&no_recurring=1&item_name=Thank+you+for+the+coffee+%3A%29&currency_code=CAD)
 
 ---
 
