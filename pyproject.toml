@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "website-downloader"
+version = "0.2.0"
+description = "A Python CLI for mirroring websites into browsable offline copies."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Harsimran Sidhu" }]
+keywords = ["website", "downloader", "mirror", "archive", "offline"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+]
+dependencies = [
+    "beautifulsoup4>=4.13.4,<5",
+    "requests>=2.32.4,<3",
+    "urllib3>=2.5.0,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black>=24.0",
+    "isort>=5.13",
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+render = ["playwright>=1.45"]
+
+[project.scripts]
+website-downloader = "website_downloader.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/PKHarsimran/website-downloader"
+Repository = "https://github.com/PKHarsimran/website-downloader"
+Issues = "https://github.com/PKHarsimran/website-downloader/issues"
+
+[tool.setuptools.packages.find]
+include = ["website_downloader*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
