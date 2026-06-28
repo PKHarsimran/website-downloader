@@ -36,6 +36,7 @@ dev = [
     "ruff>=0.6",
 ]
 render = ["playwright>=1.45"]
+ux = ["rich>=13.7"]
 
 [project.scripts]
 website-downloader = "website_downloader.cli:main"
@@ -67,4 +68,3 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-

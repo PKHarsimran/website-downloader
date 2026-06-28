@@ -19,6 +19,8 @@ It is built for developers who want something more modern and hackable than `wge
 | Authenticated snapshots | Reuses cookies for portals, intranets, and staging sites you are allowed to access. |
 | Modern asset handling | Understands `srcset`, `data-src`, `poster`, inline styles, CSS imports, meta images, and common JS asset strings. |
 | Controlled CDN mirroring | Downloads only the external domains you allow into `cdn/<domain>/...`. |
+| Ongoing archives | Uses `ETag` and `Last-Modified` metadata to skip unchanged resources with `--update`. |
+| Portable exports | Can produce zip archives and WARC response archives for sharing or long-term storage. |
 
 ## Quick Start
 
@@ -113,6 +115,31 @@ Cookie files use normal cookie header syntax:
 sessionid=abc123; csrftoken=xyz789
 ```
 
+Send custom headers such as bearer tokens:
+
+```bash
+website-downloader ^
+  --url https://docs.example.com ^
+  --destination docs_backup ^
+  --header "Authorization: Bearer <token>" ^
+  --header "X-Environment: staging"
+```
+
+Use a sitemap as the crawl seed:
+
+```bash
+website-downloader ^
+  --url https://example.com ^
+  --destination example_backup ^
+  --sitemap
+```
+
+Point at a custom sitemap URL or local sitemap file:
+
+```bash
+website-downloader --url https://example.com --sitemap https://example.com/sitemap.xml
+```
+
 Use safer crawl limits:
 
 ```bash
@@ -126,6 +153,25 @@ website-downloader ^
   --user-agent "WebsiteDownloader/0.2"
 ```
 
+Update an existing mirror without re-downloading unchanged resources:
+
+```bash
+website-downloader ^
+  --url https://example.com ^
+  --destination example_backup ^
+  --update
+```
+
+Export a portable zip and WARC archive:
+
+```bash
+website-downloader ^
+  --url https://example.com ^
+  --destination example_backup ^
+  --zip-output example_backup.zip ^
+  --warc-output example_backup.warc
+```
+
 ## JavaScript-Rendered Sites
 
 Some modern sites do not expose their real links and assets until JavaScript runs. For those, install the optional Playwright extra:
@@ -136,7 +182,20 @@ playwright install chromium
 website-downloader --url https://example.com --render-js --max-pages 20
 ```
 
-`--render-js` is optional because it is heavier than the default `requests` + BeautifulSoup path. Use it when a normal crawl only captures an empty app shell or misses important client-rendered links.
+`--headless` is also available as a friendly alias for `--render-js`.
+
+`--render-js` and `--headless` are optional because Playwright is heavier than the default `requests` + BeautifulSoup path. Use them when a normal crawl only captures an empty app shell or misses important client-rendered links.
+
+## Live Progress
+
+Install the optional UX extra for a Rich-powered terminal dashboard:
+
+```bash
+pip install -e ".[ux]"
+website-downloader --url https://example.com --progress
+```
+
+If `rich` is not installed, the crawler falls back to normal logging instead of failing.
 
 ## What Gets Rewritten
 
@@ -179,7 +238,12 @@ Open `index.html` in your browser to browse the mirrored copy.
 - Same-origin recursive crawling.
 - Optional external asset downloading with domain allowlists.
 - Cookie-based authenticated crawling.
+- Custom request headers for bearer tokens and staging environments.
 - Optional JavaScript rendering with Playwright.
+- Sitemap-aware crawl seeding.
+- Incremental update mode using `ETag` and `Last-Modified`.
+- Optional Rich-powered progress dashboard.
+- Zip and WARC output formats.
 - Retry and backoff for unstable requests.
 - Worker-thread asset downloads.
 - Path sanitization for Windows/macOS/Linux.
@@ -224,10 +288,8 @@ ruff check .
 These are natural next steps for making the project more useful to developers:
 
 - `--manifest crawl.json` with pages, assets, status codes, titles, headings, and errors.
-- `--sitemap` support to crawl from `sitemap.xml`.
-- `--header` support for bearer tokens and custom request headers.
-- Incremental update mode using `ETag` and `Last-Modified`.
-- Zip export for portable snapshots.
+- Login-flow recording for complex SSO sites.
+- Stronger WARC metadata and replay compatibility.
 - Visual diff mode for migration and redesign checks.
 
 ## Responsible Use
