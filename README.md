@@ -5,18 +5,20 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
-Website Downloader CLI mirrors public or authorized websites into browsable offline copies. It crawls same-origin pages, downloads static assets, and rewrites references so the result can be opened from disk.
+Website Downloader CLI turns a public or authorized website into a browsable offline copy. It crawls pages, downloads assets, rewrites links, and saves everything into a local folder you can open, inspect, archive, or move into a migration workflow.
 
-## Features
+It is built for developers who want something more modern and hackable than `wget --mirror`, without jumping straight into a heavy crawler framework.
 
-- Recursively crawls same-origin HTML pages.
-- Downloads images, CSS, JavaScript, fonts, media, manifests, and common web assets.
-- Rewrites links in `href`, `src`, `data-src`, `poster`, `srcset`, inline styles, CSS `url(...)`, CSS `@import`, and obvious static asset strings in JavaScript.
-- Optionally downloads whitelisted external CDN/static assets into `cdn/<domain>/...`.
-- Supports authenticated crawling with `--cookie` and `--cookie-file`.
-- Skips non-fetchable schemes such as `mailto:`, `tel:`, `javascript:`, `data:`, `blob:`, and `about:`.
-- Uses retry/backoff, path sanitization, query-string hashing, and long-path fallbacks.
-- Can optionally render JavaScript-heavy pages with Playwright via `--render-js`.
+## Why Use It
+
+| Need | What this tool gives you |
+| --- | --- |
+| Offline browsing | Saves HTML pages and local asset references that work from disk. |
+| Migration prep | Captures the old site before a rebuild, redesign, or host move. |
+| Static-site review | Lets you inspect pages, CSS, JS, images, fonts, and media locally. |
+| Authenticated snapshots | Reuses cookies for portals, intranets, and staging sites you are allowed to access. |
+| Modern asset handling | Understands `srcset`, `data-src`, `poster`, inline styles, CSS imports, meta images, and common JS asset strings. |
+| Controlled CDN mirroring | Downloads only the external domains you allow into `cdn/<domain>/...`. |
 
 ## Quick Start
 
@@ -31,13 +33,72 @@ pip install -e .
 website-downloader --url https://example.com --destination example_backup --max-pages 100
 ```
 
-The old script entry point still works:
+The compatibility script still works too:
 
 ```bash
 python website-downloader.py --url https://example.com --destination example_backup
 ```
 
-## Authenticated Crawling
+On macOS or Linux, activate the virtual environment with:
+
+```bash
+source .venv/bin/activate
+```
+
+## How It Works
+
+```mermaid
+flowchart TD
+    A["Start with a URL and CLI options"] --> B["Create an HTTP session"]
+    B --> C{"Render JavaScript?"}
+    C -- "No" --> D["Download HTML with requests"]
+    C -- "Yes" --> E["Render page with Playwright"]
+    D --> F["Parse HTML with BeautifulSoup"]
+    E --> F
+    F --> G["Find page links and asset links"]
+    G --> H{"Same-site page?"}
+    H -- "Yes" --> I["Queue page for crawling"]
+    H -- "No" --> J{"Asset allowed?"}
+    J -- "Yes" --> K["Download asset"]
+    J -- "No" --> L["Keep original reference or skip"]
+    I --> M["Rewrite links for offline browsing"]
+    K --> M
+    L --> M
+    M --> N["Save HTML, CSS, JS, images, fonts, and media"]
+    N --> O["Open the mirror locally"]
+```
+
+In plain English:
+
+1. You give the CLI a starting URL.
+2. It downloads or optionally renders each page.
+3. It finds links, images, scripts, stylesheets, fonts, media, and metadata assets.
+4. It follows same-site pages up to your `--max-pages` limit.
+5. It saves assets locally and rewrites references so pages still work offline.
+6. It skips unsafe or non-fetchable links like `mailto:`, `tel:`, `javascript:`, and `data:`.
+
+## Common Commands
+
+Mirror a small public site:
+
+```bash
+website-downloader ^
+  --url https://example.com ^
+  --destination example_backup ^
+  --max-pages 50
+```
+
+Download selected CDN assets:
+
+```bash
+website-downloader ^
+  --url https://example.com ^
+  --destination example_backup ^
+  --download-external-assets ^
+  --external-domains cdn.example.com fonts.gstatic.com
+```
+
+Mirror an authorized site with cookies:
 
 ```bash
 website-downloader ^
@@ -52,19 +113,7 @@ Cookie files use normal cookie header syntax:
 sessionid=abc123; csrftoken=xyz789
 ```
 
-## JavaScript-Rendered Sites
-
-For sites that need browser rendering before their links/assets exist in the DOM, install the optional render extra:
-
-```bash
-pip install -e ".[render]"
-playwright install chromium
-website-downloader --url https://example.com --render-js --max-pages 20
-```
-
-`--render-js` is intentionally optional because Playwright is heavier than the normal `requests` + BeautifulSoup workflow.
-
-## Safer Crawling Options
+Use safer crawl limits:
 
 ```bash
 website-downloader ^
@@ -77,14 +126,66 @@ website-downloader ^
   --user-agent "WebsiteDownloader/0.2"
 ```
 
-Use `--download-external-assets` to mirror third-party static assets. Prefer `--external-domains` when you know exactly which CDN hosts you want:
+## JavaScript-Rendered Sites
+
+Some modern sites do not expose their real links and assets until JavaScript runs. For those, install the optional Playwright extra:
 
 ```bash
-website-downloader ^
-  --url https://example.com ^
-  --download-external-assets ^
-  --external-domains cdn.example.com fonts.gstatic.com
+pip install -e ".[render]"
+playwright install chromium
+website-downloader --url https://example.com --render-js --max-pages 20
 ```
+
+`--render-js` is optional because it is heavier than the default `requests` + BeautifulSoup path. Use it when a normal crawl only captures an empty app shell or misses important client-rendered links.
+
+## What Gets Rewritten
+
+| Source | Rewritten for offline use |
+| --- | --- |
+| Page links | `<a href>` for same-site pages |
+| Images and media | `src`, `data-src`, `poster`, `srcset` |
+| Stylesheets and icons | `<link href>` for fetchable resource types |
+| Metadata images | `og:image`, `twitter:image` |
+| Inline styles | `style="background: url(...)"` |
+| CSS files | `url(...)` and `@import` |
+| JavaScript files | Common static asset strings like `/img/logo.png` |
+| External assets | Optional CDN copies under `cdn/<domain>/...` |
+
+When external scripts or stylesheets are localized, the tool removes `integrity` and `crossorigin` where needed because those attributes often break offline copies.
+
+## Output Example
+
+```text
+example_backup/
+  index.html
+  about.html
+  assets/
+    site.css
+    app.js
+  img/
+    logo.png
+    hero.webp
+  fonts/
+    inter.woff2
+  cdn/
+    cdn.example.com/
+      library.js
+```
+
+Open `index.html` in your browser to browse the mirrored copy.
+
+## Feature Snapshot
+
+- Same-origin recursive crawling.
+- Optional external asset downloading with domain allowlists.
+- Cookie-based authenticated crawling.
+- Optional JavaScript rendering with Playwright.
+- Retry and backoff for unstable requests.
+- Worker-thread asset downloads.
+- Path sanitization for Windows/macOS/Linux.
+- Query-string hashing to avoid filename collisions.
+- Long-path fallback handling.
+- Local pytest suite and CI checks.
 
 ## Local Development
 
@@ -118,13 +219,24 @@ ruff check .
 | `website_downloader/render.py` | Optional Playwright page rendering. |
 | `tests/` | Local pytest suite with a tiny fixture HTTP server. |
 
+## Roadmap Ideas
+
+These are natural next steps for making the project more useful to developers:
+
+- `--manifest crawl.json` with pages, assets, status codes, titles, headings, and errors.
+- `--sitemap` support to crawl from `sitemap.xml`.
+- `--header` support for bearer tokens and custom request headers.
+- Incremental update mode using `ETag` and `Last-Modified`.
+- Zip export for portable snapshots.
+- Visual diff mode for migration and redesign checks.
+
 ## Responsible Use
 
 Only mirror sites you own, have permission to archive, or are legally allowed to access. Authentication cookies can expose private content, so keep cookie files out of source control and avoid sharing generated mirrors that contain private data. Use `--respect-robots`, lower `--threads`, and `--delay` for polite crawling.
 
 ## Licensing And Ownership
 
-This project is licensed under the MIT License. That means others may use, copy, modify, and distribute the code if they keep the license notice. Your original code remains your copyrighted work, but the MIT license intentionally allows broad reuse.
+This project is licensed under the MIT License. Others may use, copy, modify, and distribute the code if they keep the license notice. Your original code remains your copyrighted work, but the MIT license intentionally allows broad reuse.
 
 If the project becomes a product, consider choosing a distinctive brand name and protecting that brand separately from the source code license.
 
