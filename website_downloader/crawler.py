@@ -9,11 +9,15 @@ from pathlib import Path
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
+from .cache import CrawlCache
 from .constants import ASSET_EXTENSIONS, DEFAULT_USER_AGENT, TIMEOUT
+from .exports import SavedResource, create_zip_archive, write_warc
 from .http import create_session, fetch_binary, fetch_html
 from .paths import cdn_local_path, create_dir, safe_write_text, to_local_asset_path, to_local_path
+from .progress import create_progress_reporter
 from .render import PlaywrightRenderer
 from .rewrite import extract_css_assets, link_rel_is_fetchable, rewrite_links
+from .sitemap import load_sitemap_urls
 from .urltools import (
     canonical_netloc,
     canonicalize_url,
@@ -39,6 +43,7 @@ class CrawlOptions:
     download_external_assets: bool = False
     external_domains: set[str] | None = None
     cookies: dict[str, str] | None = None
+    headers: dict[str, str] | None = None
     timeout: int = TIMEOUT
     delay: float = 0.0
     max_asset_bytes: int | None = None
@@ -47,6 +52,12 @@ class CrawlOptions:
     render_js: bool = False
     render_wait_until: str = "networkidle"
     render_timeout_ms: int = 30000
+    update: bool = False
+    cache_file: Path | None = None
+    sitemap: str | None = None
+    progress: bool = False
+    zip_output: Path | None = None
+    warc_output: Path | None = None
 
 
 @dataclass
@@ -54,25 +65,43 @@ class CrawlStats:
     pages_seen: int
     assets_queued: int
     elapsed_seconds: float
+    pages_cached: int = 0
+    assets_cached: int = 0
+    pages_written: int = 0
+    assets_written: int = 0
 
 
 def crawl_site(options: CrawlOptions) -> CrawlStats:
     q_pages: queue.Queue[str] = queue.Queue()
     start_url = canonicalize_url(options.start_url)
-    q_pages.put(start_url)
-
     seen_pages: set[str] = set()
-    queued_pages: set[str] = {start_url}
+    queued_pages: set[str] = set()
     queued_assets: set[str] = set()
     asset_lock = threading.Lock()
+    cache_lock = threading.Lock()
+    record_lock = threading.Lock()
     download_q: queue.Queue[tuple[str, Path] | None] = queue.Queue()
+    saved_records: list[SavedResource] = []
 
     root_netloc = canonical_netloc(urlparse(start_url))
     user_agent = options.user_agent or DEFAULT_USER_AGENT
-    page_session = create_session(user_agent=user_agent, cookies=options.cookies)
+    page_session = create_session(
+        user_agent=user_agent,
+        cookies=options.cookies,
+        headers=options.headers,
+    )
     robots = (
         _load_robots(start_url, page_session, options.timeout) if options.respect_robots else None
     )
+    cache_path = options.cache_file or (options.root / ".website-downloader-cache.json")
+    crawl_cache = CrawlCache.load(cache_path) if options.update else CrawlCache()
+    stats = CrawlStats(pages_seen=0, assets_queued=0, elapsed_seconds=0.0)
+
+    def enqueue_page(url: str) -> None:
+        normalized = normalize_url(canonicalize_url(url, start_url))
+        if normalized not in queued_pages and normalized not in seen_pages:
+            q_pages.put(normalized)
+            queued_pages.add(normalized)
 
     def enqueue_asset(url: str, dest: Path) -> None:
         abs_url = normalize_url(canonicalize_url(url))
@@ -80,24 +109,29 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
             if abs_url in queued_assets:
                 return
             queued_assets.add(abs_url)
+            stats.assets_queued = len(queued_assets)
+        progress_reporter.asset_queued()
         create_dir(dest.parent)
         log.debug("Queue asset: %s -> %s", abs_url, dest)
         download_q.put((abs_url, dest))
 
-    workers = _start_workers(
-        threads=options.threads,
-        download_q=download_q,
-        enqueue_asset=enqueue_asset,
-        options=options,
-        root_netloc=root_netloc,
-        user_agent=user_agent,
-    )
+    enqueue_page(start_url)
+    if options.sitemap:
+        for sitemap_url in load_sitemap_urls(
+            options.sitemap,
+            start_url=start_url,
+            session=page_session,
+            timeout=options.timeout,
+            root_netloc=root_netloc,
+        ):
+            enqueue_page(sitemap_url)
 
     start_time = time.time()
     renderer_context = (
         PlaywrightRenderer(
             start_url=start_url,
             cookies=options.cookies,
+            headers=options.headers,
             timeout_ms=options.render_timeout_ms,
             wait_until=options.render_wait_until,
             user_agent=user_agent,
@@ -105,9 +139,28 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
         if options.render_js
         else None
     )
+    progress_reporter = create_progress_reporter(options.progress, options.max_pages)
+    workers: list[threading.Thread] = []
 
     try:
-        with _optional_renderer(renderer_context) as renderer:
+        with (
+            _optional_renderer(renderer_context) as renderer,
+            progress_reporter as progress,
+        ):
+            workers = _start_workers(
+                threads=options.threads,
+                download_q=download_q,
+                enqueue_asset=enqueue_asset,
+                options=options,
+                root_netloc=root_netloc,
+                user_agent=user_agent,
+                cache=crawl_cache,
+                cache_lock=cache_lock,
+                records=saved_records,
+                record_lock=record_lock,
+                stats=stats,
+                progress=progress,
+            )
             while not q_pages.empty() and len(seen_pages) < options.max_pages:
                 page_url = canonicalize_url(q_pages.get())
                 if page_url in seen_pages:
@@ -117,19 +170,27 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                     continue
 
                 seen_pages.add(page_url)
+                stats.pages_seen = len(seen_pages)
                 log.info("[%s/%s] %s", len(seen_pages), options.max_pages, page_url)
+                progress.page_seen(len(seen_pages), options.max_pages, page_url)
 
+                local_path = to_local_path(urlparse(page_url), options.root)
                 soup = fetch_html(
                     page_url,
                     session=page_session,
                     timeout=options.timeout,
                     renderer=renderer,
+                    conditional_headers=(
+                        crawl_cache.conditional_headers(page_url) if options.update else None
+                    ),
+                    cached_path=local_path,
                 )
-                if soup is None:
+                if soup is None or soup.soup is None:
+                    progress.error()
                     continue
 
                 _discover_references(
-                    soup,
+                    soup.soup,
                     page_url=page_url,
                     root=options.root,
                     root_netloc=root_netloc,
@@ -140,17 +201,41 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                     options=options,
                 )
 
-                local_path = to_local_path(urlparse(page_url), options.root)
-                create_dir(local_path.parent)
-                rewrite_links(
-                    soup,
-                    page_url,
-                    options.root,
-                    local_path.parent,
-                    options.download_external_assets,
-                    options.external_domains,
-                )
-                safe_write_text(local_path, str(soup), encoding="utf-8")
+                if soup.not_modified:
+                    stats.pages_cached += 1
+                    progress.page_saved(cached=True)
+                else:
+                    create_dir(local_path.parent)
+                    rewrite_links(
+                        soup.soup,
+                        page_url,
+                        options.root,
+                        local_path.parent,
+                        options.download_external_assets,
+                        options.external_domains,
+                    )
+                    safe_write_text(local_path, str(soup.soup), encoding="utf-8")
+                    stats.pages_written += 1
+                    progress.page_saved()
+                    if options.update:
+                        with cache_lock:
+                            crawl_cache.update(
+                                url=page_url,
+                                path=local_path,
+                                kind="page",
+                                status_code=soup.status_code,
+                                response_headers=soup.headers,
+                            )
+                    with record_lock:
+                        saved_records.append(
+                            SavedResource(
+                                url=page_url,
+                                path=local_path,
+                                kind="page",
+                                status_code=soup.status_code,
+                                content_type=soup.content_type or "text/html",
+                            )
+                        )
 
                 if options.delay:
                     time.sleep(options.delay)
@@ -163,6 +248,7 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
             worker.join(timeout=5)
 
     elapsed = time.time() - start_time
+    stats.elapsed_seconds = elapsed
     if seen_pages:
         log.info(
             "Crawl finished: %s pages in %.2fs (%.2fs avg)",
@@ -173,11 +259,16 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
     else:
         log.warning("Nothing downloaded; check URL or connectivity")
 
-    return CrawlStats(
-        pages_seen=len(seen_pages),
-        assets_queued=len(queued_assets),
-        elapsed_seconds=elapsed,
-    )
+    if options.update:
+        crawl_cache.save(cache_path)
+    if options.zip_output is not None:
+        create_zip_archive(options.root, options.zip_output)
+        log.info("Wrote zip archive: %s", options.zip_output)
+    if options.warc_output is not None:
+        write_warc(saved_records, options.warc_output)
+        log.info("Wrote WARC archive: %s", options.warc_output)
+
+    return stats
 
 
 class _optional_renderer:
@@ -203,16 +294,26 @@ def _start_workers(
     options: CrawlOptions,
     root_netloc: str,
     user_agent: str,
+    cache: CrawlCache,
+    cache_lock: threading.Lock,
+    records: list[SavedResource],
+    record_lock: threading.Lock,
+    stats: CrawlStats,
+    progress,
 ) -> list[threading.Thread]:
     def worker() -> None:
-        session = create_session(user_agent=user_agent, cookies=options.cookies)
+        session = create_session(
+            user_agent=user_agent,
+            cookies=options.cookies,
+            headers=options.headers,
+        )
         while True:
             item = download_q.get()
             try:
                 if item is None:
                     return
                 url, dest = item
-                fetch_binary(
+                result = fetch_binary(
                     url,
                     dest,
                     session=session,
@@ -223,7 +324,37 @@ def _start_workers(
                     timeout=options.timeout,
                     max_asset_bytes=options.max_asset_bytes,
                     enqueue_asset=enqueue_asset,
+                    update=options.update,
+                    conditional_headers=cache.conditional_headers(url) if options.update else None,
                 )
+                if result is None:
+                    progress.error()
+                    continue
+                if result.not_modified:
+                    stats.assets_cached += 1
+                    progress.asset_saved(cached=True)
+                    continue
+                stats.assets_written += 1
+                progress.asset_saved()
+                if options.update:
+                    with cache_lock:
+                        cache.update(
+                            url=url,
+                            path=result.path,
+                            kind="asset",
+                            status_code=result.status_code,
+                            response_headers=result.headers,
+                        )
+                with record_lock:
+                    records.append(
+                        SavedResource(
+                            url=url,
+                            path=result.path,
+                            kind="asset",
+                            status_code=result.status_code,
+                            content_type=result.content_type,
+                        )
+                    )
             finally:
                 download_q.task_done()
 

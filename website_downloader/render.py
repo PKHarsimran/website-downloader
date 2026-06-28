@@ -14,12 +14,14 @@ class PlaywrightRenderer:
         *,
         start_url: str,
         cookies: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
         timeout_ms: int = 30000,
         wait_until: str = "networkidle",
         user_agent: str | None = None,
     ) -> None:
         self.start_url = start_url
         self.cookies = cookies or {}
+        self.headers = headers or {}
         self.timeout_ms = timeout_ms
         self.wait_until = wait_until
         self.user_agent = user_agent or DEFAULT_USER_AGENT
@@ -38,7 +40,10 @@ class PlaywrightRenderer:
 
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch(headless=True)
-        self._context = self._browser.new_context(user_agent=self.user_agent)
+        self._context = self._browser.new_context(
+            user_agent=self.user_agent,
+            extra_http_headers=self.headers or None,
+        )
         self._add_cookies()
         return self
 

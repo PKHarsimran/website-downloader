@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from website_downloader.cli import load_cookies, parse_args, parse_cookie_header, validate_args
+from website_downloader.cli import (
+    load_cookies,
+    load_headers,
+    parse_args,
+    parse_cookie_header,
+    parse_header,
+    validate_args,
+)
 
 
 def test_parse_cookie_header_accepts_header_syntax() -> None:
@@ -30,3 +37,16 @@ def test_validate_args_rejects_invalid_limits() -> None:
     args = parse_args(["--url", "https://example.com", "--threads", "0"])
     with pytest.raises(ValueError):
         validate_args(args)
+
+
+def test_parse_header_accepts_authorization_header() -> None:
+    assert parse_header("Authorization: Bearer token") == ("Authorization", "Bearer token")
+
+
+def test_load_headers_uses_last_repeated_header() -> None:
+    assert load_headers(["X-Test: one", "X-Test: two"]) == {"X-Test": "two"}
+
+
+def test_headless_alias_enables_flag() -> None:
+    args = parse_args(["--url", "https://example.com", "--headless"])
+    assert args.headless is True

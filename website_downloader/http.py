@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import requests
@@ -16,10 +17,29 @@ from .urltools import is_allowed_external, is_httpish, is_internal, is_non_fetch
 log = logging.getLogger(__name__)
 
 
+@dataclass
+class HtmlFetchResult:
+    soup: BeautifulSoup | None
+    status_code: int
+    headers: dict[str, str]
+    not_modified: bool = False
+    content_type: str | None = None
+
+
+@dataclass
+class BinaryFetchResult:
+    path: Path
+    status_code: int
+    headers: dict[str, str]
+    not_modified: bool = False
+    content_type: str | None = None
+
+
 def create_session(
     *,
     user_agent: str | None = None,
     cookies: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> requests.Session:
     session = requests.Session()
     retry_strategy = Retry(
@@ -34,6 +54,8 @@ def create_session(
     session.headers.update(DEFAULT_HEADERS)
     if user_agent:
         session.headers["User-Agent"] = user_agent
+    if headers:
+        session.headers.update(headers)
     if cookies:
         session.cookies.update(cookies)
     log.debug("Accept-Encoding configured as: %s", session.headers.get("Accept-Encoding"))
@@ -46,13 +68,36 @@ def fetch_html(
     session: requests.Session,
     timeout: int = TIMEOUT,
     renderer=None,
-) -> BeautifulSoup | None:
+    conditional_headers: dict[str, str] | None = None,
+    cached_path: Path | None = None,
+) -> HtmlFetchResult | None:
     try:
         if renderer is not None:
-            return BeautifulSoup(renderer.fetch(url), "html.parser")
-        response = session.get(url, timeout=timeout)
+            html = renderer.fetch(url)
+            return HtmlFetchResult(
+                soup=BeautifulSoup(html, "html.parser"),
+                status_code=200,
+                headers={},
+                content_type="text/html",
+            )
+        response = session.get(url, timeout=timeout, headers=conditional_headers)
+        headers = dict(response.headers)
+        if response.status_code == 304:
+            soup = _read_cached_html(cached_path)
+            return HtmlFetchResult(
+                soup=soup,
+                status_code=304,
+                headers=headers,
+                not_modified=True,
+                content_type=response.headers.get("Content-Type"),
+            )
         response.raise_for_status()
-        return BeautifulSoup(response.text, "html.parser")
+        return HtmlFetchResult(
+            soup=BeautifulSoup(response.text, "html.parser"),
+            status_code=response.status_code,
+            headers=headers,
+            content_type=response.headers.get("Content-Type"),
+        )
     except Exception as exc:
         log.warning("HTTP error for %s: %s", url, exc)
         return None
@@ -70,7 +115,9 @@ def fetch_binary(
     timeout: int = TIMEOUT,
     max_asset_bytes: int | None = None,
     enqueue_asset: EnqueueAsset | None = None,
-) -> None:
+    update: bool = False,
+    conditional_headers: dict[str, str] | None = None,
+) -> BinaryFetchResult | None:
     is_ext = not is_internal(url, root_netloc)
     if is_ext and not download_external_assets:
         log.debug("Blocked external asset because external downloads are disabled: %s", url)
@@ -80,16 +127,25 @@ def fetch_binary(
         return
     if is_non_fetchable(url) or not is_httpish(url):
         log.debug("Skipping non-fetchable URL: %s", url)
-        return
-    if dest.exists():
-        return
+        return None
+    if dest.exists() and not update:
+        return None
 
     try:
-        response = session.get(url, timeout=timeout, stream=True)
+        response = session.get(url, timeout=timeout, stream=True, headers=conditional_headers)
+        headers = dict(response.headers)
+        if response.status_code == 304 and dest.exists():
+            return BinaryFetchResult(
+                path=dest,
+                status_code=304,
+                headers=headers,
+                not_modified=True,
+                content_type=response.headers.get("Content-Type"),
+            )
         response.raise_for_status()
         if _too_large(response, max_asset_bytes):
             log.warning("Skipping asset over size limit: %s", url)
-            return
+            return None
 
         create_dir(dest.parent)
         final_dest = _write_stream(response, dest, max_asset_bytes=max_asset_bytes)
@@ -116,8 +172,21 @@ def fetch_binary(
                 external_domains=external_domains,
                 enqueue_asset=enqueue_asset,
             )
+        return BinaryFetchResult(
+            path=final_dest,
+            status_code=response.status_code,
+            headers=headers,
+            content_type=response.headers.get("Content-Type"),
+        )
     except Exception as exc:
         log.error("Failed to save %s: %s", url, exc)
+        return None
+
+
+def _read_cached_html(cached_path: Path | None) -> BeautifulSoup | None:
+    if cached_path is None or not cached_path.exists():
+        return None
+    return BeautifulSoup(cached_path.read_text(encoding="utf-8", errors="ignore"), "html.parser")
 
 
 def _too_large(response: requests.Response, max_asset_bytes: int | None) -> bool:
