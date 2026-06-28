@@ -47,37 +47,61 @@ On macOS or Linux, activate the virtual environment with:
 source .venv/bin/activate
 ```
 
+## Install Options
+
+Start with the core install, then add extras only when you need them:
+
+| Install | Use when you want |
+| --- | --- |
+| `pip install -e .` | Normal static-site crawling with `requests` and BeautifulSoup. |
+| `pip install -e ".[dev]"` | Tests, formatting, linting, and local contributor work. |
+| `pip install -e ".[render]"` | Playwright-powered JavaScript rendering with `--render-js` or `--headless`. |
+| `pip install -e ".[ux]"` | Rich-powered terminal progress with `--progress`. |
+
 ## How It Works
 
 ```mermaid
 flowchart TD
-    A["Start with a URL and CLI options"] --> B["Create an HTTP session"]
-    B --> C{"Render JavaScript?"}
-    C -- "No" --> D["Download HTML with requests"]
-    C -- "Yes" --> E["Render page with Playwright"]
-    D --> F["Parse HTML with BeautifulSoup"]
+    A["Start with a URL and CLI options"] --> B["Create session with cookies, headers, retries"]
+    B --> C{"Use sitemap?"}
+    C -- "Yes" --> D["Load sitemap URLs into the page queue"]
+    C -- "No" --> E["Queue the starting URL"]
+    D --> F["Fetch next page"]
     E --> F
-    F --> G["Find page links and asset links"]
-    G --> H{"Same-site page?"}
-    H -- "Yes" --> I["Queue page for crawling"]
-    H -- "No" --> J{"Asset allowed?"}
-    J -- "Yes" --> K["Download asset"]
-    J -- "No" --> L["Keep original reference or skip"]
-    I --> M["Rewrite links for offline browsing"]
-    K --> M
-    L --> M
-    M --> N["Save HTML, CSS, JS, images, fonts, and media"]
-    N --> O["Open the mirror locally"]
+    F --> G{"Update cache says unchanged?"}
+    G -- "Yes" --> H["Reuse saved local file"]
+    G -- "No" --> I{"Render JavaScript?"}
+    I -- "No" --> J["Download HTML with requests"]
+    I -- "Yes" --> K["Render page with Playwright"]
+    J --> L["Parse HTML with BeautifulSoup"]
+    K --> L
+    H --> L
+    L --> M["Find page links and asset links"]
+    M --> N{"Same-site page?"}
+    N -- "Yes" --> O["Queue page for crawling"]
+    N -- "No" --> P{"Asset allowed?"}
+    P -- "Yes" --> Q["Download asset"]
+    P -- "No" --> R["Keep original reference or skip"]
+    O --> S["Rewrite links for offline browsing"]
+    Q --> S
+    R --> S
+    S --> T["Save mirror folder"]
+    T --> U{"Export requested?"}
+    U -- "Zip/WARC" --> V["Write portable archive"]
+    U -- "No" --> W["Open index.html locally"]
+    V --> W
 ```
 
 In plain English:
 
-1. You give the CLI a starting URL.
-2. It downloads or optionally renders each page.
-3. It finds links, images, scripts, stylesheets, fonts, media, and metadata assets.
-4. It follows same-site pages up to your `--max-pages` limit.
-5. It saves assets locally and rewrites references so pages still work offline.
-6. It skips unsafe or non-fetchable links like `mailto:`, `tel:`, `javascript:`, and `data:`.
+1. You give the CLI a starting URL and optional crawl settings.
+2. It can seed pages from `sitemap.xml`, custom headers, cookies, and robots rules.
+3. It downloads or optionally renders each page with Playwright.
+4. It finds links, images, scripts, stylesheets, fonts, media, and metadata assets.
+5. It follows same-site pages up to your `--max-pages` limit.
+6. It saves assets locally and rewrites references so pages still work offline.
+7. With `--update`, unchanged resources can be skipped using cache metadata.
+8. With `--zip-output` or `--warc-output`, the result can also be exported as an archive.
 
 ## Common Commands
 
@@ -197,6 +221,19 @@ website-downloader --url https://example.com --progress
 
 If `rich` is not installed, the crawler falls back to normal logging instead of failing.
 
+## Feature Flags At A Glance
+
+| Flag | What it does | Best for |
+| --- | --- | --- |
+| `--render-js` / `--headless` | Uses Playwright before parsing the page. | React, Vue, Angular, Next.js, and other client-rendered sites. |
+| `--cookie-file` | Sends saved browser/session cookies. | Authorized portals, staging sites, docs behind login. |
+| `--header` | Adds custom request headers. | Bearer tokens, staging headers, API gateway headers. |
+| `--update` | Reuses cache metadata and skips unchanged resources when the server supports it. | Recurring mirrors and archives. |
+| `--sitemap` | Seeds the crawl from `sitemap.xml` or a supplied sitemap. | Faster, more complete discovery. |
+| `--progress` | Shows a Rich terminal progress dashboard when installed. | Long crawls where visibility matters. |
+| `--zip-output` | Exports the mirror folder as a zip. | Sharing, attaching, or storing snapshots. |
+| `--warc-output` | Writes a simple WARC response archive. | Archival workflows and future replay tooling. |
+
 ## What Gets Rewritten
 
 | Source | Rewritten for offline use |
@@ -281,6 +318,10 @@ ruff check .
 | `website_downloader/rewrite.py` | HTML, CSS, JavaScript, and `srcset` reference rewriting. |
 | `website_downloader/paths.py` | Filesystem-safe page, asset, and CDN path mapping. |
 | `website_downloader/render.py` | Optional Playwright page rendering. |
+| `website_downloader/cache.py` | Update-mode metadata for `ETag` and `Last-Modified`. |
+| `website_downloader/sitemap.py` | Sitemap and sitemap-index loading. |
+| `website_downloader/progress.py` | Optional Rich progress dashboard. |
+| `website_downloader/exports.py` | Zip and WARC export helpers. |
 | `tests/` | Local pytest suite with a tiny fixture HTTP server. |
 
 ## Roadmap Ideas
