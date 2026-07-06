@@ -178,6 +178,17 @@ website-downloader ^
   --user-agent "WebsiteDownloader/0.2"
 ```
 
+Speed up a large mirror with parallel page fetching:
+
+```bash
+website-downloader ^
+  --url https://example.com ^
+  --max-pages 500 ^
+  --page-threads 4
+```
+
+`--page-threads` defaults to 1 so crawls stay polite; raise it only for sites that can handle concurrent requests. `--render-js` always uses a single page worker.
+
 Update an existing mirror without re-downloading unchanged resources:
 
 ```bash
@@ -229,6 +240,7 @@ If `rich` is not installed, the crawler falls back to normal logging instead of 
 | `--render-js` / `--headless` | Uses Playwright before parsing the page. | React, Vue, Angular, Next.js, and other client-rendered sites. |
 | `--cookie-file` | Sends saved browser/session cookies. | Authorized portals, staging sites, docs behind login. |
 | `--header` | Adds custom request headers. | Bearer tokens, staging headers, API gateway headers. |
+| `--page-threads` | Fetches HTML pages concurrently (default 1). | Faster mirroring of large sites that tolerate concurrent requests. |
 | `--update` | Reuses cache metadata and skips unchanged resources when the server supports it. | Recurring mirrors and archives. |
 | `--sitemap` | Seeds the crawl from `sitemap.xml` or a supplied sitemap. | Faster, more complete discovery. |
 | `--progress` | Shows a Rich terminal progress dashboard when installed. | Long crawls where visibility matters. |

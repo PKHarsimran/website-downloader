@@ -44,6 +44,31 @@ def test_crawl_site_mirrors_local_fixture(local_site, tmp_path: Path) -> None:
     assert "'/api/data'" in js
 
 
+def test_crawl_site_parallel_pages_mirrors_local_fixture(local_site, tmp_path: Path) -> None:
+    base_url, _site = local_site
+    output = tmp_path / "mirror"
+
+    stats = crawl_site(
+        CrawlOptions(
+            start_url=base_url,
+            root=output,
+            max_pages=2,
+            threads=2,
+            page_threads=4,
+        )
+    )
+
+    assert stats.pages_seen == 2
+    assert stats.pages_written == 2
+    assert (output / "index.html").exists()
+    assert (output / "about.html").exists()
+    assert (output / "assets" / "site.css").exists()
+    assert (output / "img" / "logo.png").exists()
+
+    html = (output / "index.html").read_text(encoding="utf-8")
+    assert 'href="assets/site.css"' in html
+
+
 def test_crawl_site_uses_sitemap_seed(local_site, tmp_path: Path) -> None:
     base_url, _site = local_site
     output = tmp_path / "mirror"

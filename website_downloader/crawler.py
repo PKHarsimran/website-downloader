@@ -4,6 +4,8 @@ import logging
 import queue
 import threading
 import time
+from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -38,6 +40,7 @@ class CrawlOptions:
     root: Path
     max_pages: int = 50
     threads: int = 6
+    page_threads: int = 1
     download_external_assets: bool = False
     external_domains: set[str] | None = None
     cookies: dict[str, str] | None = None
@@ -79,6 +82,8 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
     asset_lock = threading.Lock()
     cache_lock = threading.Lock()
     record_lock = threading.Lock()
+    page_lock = threading.Lock()
+    stats_lock = threading.Lock()
     download_q: queue.Queue[tuple[str, Path] | None] = queue.Queue()
     saved_records: list[SavedResource] = []
 
@@ -89,6 +94,28 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
         cookies=options.cookies,
         headers=options.headers,
     )
+    thread_sessions = threading.local()
+    thread_sessions.session = page_session
+
+    def _session_for_thread():
+        session = getattr(thread_sessions, "session", None)
+        if session is None:
+            session = create_session(
+                user_agent=user_agent,
+                cookies=options.cookies,
+                headers=options.headers,
+            )
+            thread_sessions.session = session
+        return session
+
+    page_threads = max(1, options.page_threads)
+    if options.render_js and page_threads > 1:
+        log.info("JavaScript rendering is single-threaded; using one page worker.")
+        page_threads = 1
+    if options.delay and page_threads > 1:
+        log.warning(
+            "--delay applies per page worker; total request rate scales with --page-threads."
+        )
     robots = (
         _load_robots(start_url, page_session, options.timeout) if options.respect_robots else None
     )
@@ -98,9 +125,10 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
 
     def enqueue_page(url: str) -> None:
         normalized = canonicalize_url(url, start_url)
-        if normalized not in queued_pages and normalized not in seen_pages:
-            q_pages.put(normalized)
-            queued_pages.add(normalized)
+        with page_lock:
+            if normalized not in queued_pages and normalized not in seen_pages:
+                q_pages.put(normalized)
+                queued_pages.add(normalized)
 
     def enqueue_asset(url: str, dest: Path) -> None:
         abs_url = canonicalize_url(url)
@@ -163,92 +191,118 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                 records=saved_records,
                 record_lock=record_lock,
                 stats=stats,
+                stats_lock=stats_lock,
                 progress=progress,
             )
             if options.update:
                 for cached_url, entry in list(crawl_cache.entries.items()):
                     if entry.kind == "asset":
                         enqueue_asset(cached_url, Path(entry.path))
-            while not q_pages.empty() and len(seen_pages) < options.max_pages:
-                page_url = canonicalize_url(q_pages.get())
-                if page_url in seen_pages:
-                    continue
-                if robots is not None and not robots.can_fetch(user_agent, page_url):
-                    log.info("Blocked by robots.txt: %s", page_url)
-                    continue
 
-                seen_pages.add(page_url)
-                stats.pages_seen = len(seen_pages)
-                log.info("[%s/%s] %s", len(seen_pages), options.max_pages, page_url)
-                progress.page_seen(len(seen_pages), options.max_pages, page_url)
+            def claim_page(page_url: str) -> bool:
+                with page_lock:
+                    if page_url in seen_pages:
+                        return False
+                    if robots is not None and not robots.can_fetch(user_agent, page_url):
+                        log.info("Blocked by robots.txt: %s", page_url)
+                        return False
+                    seen_pages.add(page_url)
+                    claimed = len(seen_pages)
+                stats.pages_seen = claimed
+                log.info("[%s/%s] %s", claimed, options.max_pages, page_url)
+                progress.page_seen(claimed, options.max_pages, page_url)
+                return True
 
-                local_path = to_local_path(urlparse(page_url), options.root)
-                soup = fetch_html(
-                    page_url,
-                    session=page_session,
-                    timeout=options.timeout,
-                    renderer=renderer,
-                    conditional_headers=(
-                        crawl_cache.conditional_headers(page_url) if options.update else None
-                    ),
-                    cached_path=local_path,
-                )
-                if soup is None or soup.soup is None:
-                    stats.errors += 1
-                    progress.error()
-                    continue
-
-                if soup.not_modified:
-                    # The saved copy has links rewritten to local paths, so
-                    # discovering references from it would queue bogus URLs.
-                    stats.pages_cached += 1
-                    progress.page_saved(cached=True)
-                else:
-                    _discover_references(
-                        soup.soup,
-                        page_url=page_url,
-                        root=options.root,
-                        root_netloc=root_netloc,
-                        q_pages=q_pages,
-                        queued_pages=queued_pages,
-                        seen_pages=seen_pages,
-                        enqueue_asset=enqueue_asset,
-                        options=options,
-                    )
-                    create_dir(local_path.parent)
-                    rewrite_links(
-                        soup.soup,
+            def process_page(page_url: str) -> None:
+                try:
+                    local_path = to_local_path(urlparse(page_url), options.root)
+                    result = fetch_html(
                         page_url,
-                        options.root,
-                        local_path.parent,
-                        options.download_external_assets,
-                        options.external_domains,
+                        session=_session_for_thread(),
+                        timeout=options.timeout,
+                        renderer=renderer,
+                        conditional_headers=(
+                            crawl_cache.conditional_headers(page_url) if options.update else None
+                        ),
+                        cached_path=local_path,
                     )
-                    safe_write_text(local_path, str(soup.soup), encoding="utf-8")
-                    stats.pages_written += 1
-                    progress.page_saved()
-                    if options.update:
-                        with cache_lock:
-                            crawl_cache.update(
-                                url=page_url,
-                                path=local_path,
-                                kind="page",
-                                status_code=soup.status_code,
-                                response_headers=soup.headers,
-                            )
-                    with record_lock:
-                        saved_records.append(
-                            SavedResource(
-                                url=page_url,
-                                path=local_path,
-                                kind="page",
-                                status_code=soup.status_code,
-                                content_type=soup.content_type or "text/html",
-                            )
-                        )
+                    if result is None or result.soup is None:
+                        with stats_lock:
+                            stats.errors += 1
+                        progress.error()
+                        return
 
+                    if result.not_modified:
+                        # The saved copy has links rewritten to local paths, so
+                        # discovering references from it would queue bogus URLs.
+                        with stats_lock:
+                            stats.pages_cached += 1
+                        progress.page_saved(cached=True)
+                    else:
+                        _discover_references(
+                            result.soup,
+                            page_url=page_url,
+                            root=options.root,
+                            root_netloc=root_netloc,
+                            enqueue_page=enqueue_page,
+                            enqueue_asset=enqueue_asset,
+                            options=options,
+                        )
+                        create_dir(local_path.parent)
+                        rewrite_links(
+                            result.soup,
+                            page_url,
+                            options.root,
+                            local_path.parent,
+                            options.download_external_assets,
+                            options.external_domains,
+                        )
+                        safe_write_text(local_path, str(result.soup), encoding="utf-8")
+                        with stats_lock:
+                            stats.pages_written += 1
+                        progress.page_saved()
+                        if options.update:
+                            with cache_lock:
+                                crawl_cache.update(
+                                    url=page_url,
+                                    path=local_path,
+                                    kind="page",
+                                    status_code=result.status_code,
+                                    response_headers=result.headers,
+                                )
+                        with record_lock:
+                            saved_records.append(
+                                SavedResource(
+                                    url=page_url,
+                                    path=local_path,
+                                    kind="page",
+                                    status_code=result.status_code,
+                                    content_type=result.content_type or "text/html",
+                                )
+                            )
+                except Exception:
+                    log.exception("Failed to process page %s", page_url)
+                    with stats_lock:
+                        stats.errors += 1
+                    progress.error()
                 if options.delay:
                     time.sleep(options.delay)
+
+            if page_threads == 1:
+                # Inline path keeps Playwright rendering on this thread.
+                while not q_pages.empty() and len(seen_pages) < options.max_pages:
+                    page_url = q_pages.get()
+                    if claim_page(page_url):
+                        process_page(page_url)
+            else:
+                _run_page_pool(
+                    page_threads=page_threads,
+                    q_pages=q_pages,
+                    claim_page=claim_page,
+                    process_page=process_page,
+                    max_pages=options.max_pages,
+                    seen_pages=seen_pages,
+                )
     finally:
         download_q.join()
         for _ in workers:
@@ -285,6 +339,36 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
     return stats
 
 
+def _run_page_pool(
+    *,
+    page_threads: int,
+    q_pages: queue.Queue[str],
+    claim_page: Callable[[str], bool],
+    process_page: Callable[[str], None],
+    max_pages: int,
+    seen_pages: set[str],
+) -> None:
+    """Fetch pages concurrently while honoring the max_pages budget.
+
+    Pages are claimed (marked seen) before submission, so the budget can
+    never be exceeded. The crawl is done when the queue is empty and no
+    page is in flight; in-flight pages may still enqueue new ones.
+    """
+    with ThreadPoolExecutor(max_workers=page_threads, thread_name_prefix="Page") as pool:
+        pending: set[Future] = set()
+        while True:
+            while len(seen_pages) < max_pages and len(pending) < page_threads:
+                try:
+                    page_url = q_pages.get_nowait()
+                except queue.Empty:
+                    break
+                if claim_page(page_url):
+                    pending.add(pool.submit(process_page, page_url))
+            if not pending:
+                break
+            _done, pending = wait(pending, return_when=FIRST_COMPLETED)
+
+
 class _optional_renderer:
     def __init__(self, renderer):
         self.renderer = renderer
@@ -313,6 +397,7 @@ def _start_workers(
     records: list[SavedResource],
     record_lock: threading.Lock,
     stats: CrawlStats,
+    stats_lock: threading.Lock,
     progress,
 ) -> list[threading.Thread]:
     def worker() -> None:
@@ -342,15 +427,17 @@ def _start_workers(
                     conditional_headers=cache.conditional_headers(url) if options.update else None,
                 )
                 if result is None:
-                    with record_lock:
+                    with stats_lock:
                         stats.errors += 1
                     progress.error()
                     continue
                 if result.not_modified:
-                    stats.assets_cached += 1
+                    with stats_lock:
+                        stats.assets_cached += 1
                     progress.asset_saved(cached=True)
                     continue
-                stats.assets_written += 1
+                with stats_lock:
+                    stats.assets_written += 1
                 progress.asset_saved()
                 if options.update:
                     with cache_lock:
@@ -404,9 +491,7 @@ def _discover_references(
     page_url: str,
     root: Path,
     root_netloc: str,
-    q_pages: queue.Queue[str],
-    queued_pages: set[str],
-    seen_pages: set[str],
+    enqueue_page,
     enqueue_asset,
     options: CrawlOptions,
 ) -> None:
@@ -423,9 +508,7 @@ def _discover_references(
                 page_url=page_url,
                 root=root,
                 root_netloc=root_netloc,
-                q_pages=q_pages,
-                queued_pages=queued_pages,
-                seen_pages=seen_pages,
+                enqueue_page=enqueue_page,
                 enqueue_asset=enqueue_asset,
                 options=options,
             )
@@ -483,9 +566,7 @@ def _discover_attr(
     page_url: str,
     root: Path,
     root_netloc: str,
-    q_pages: queue.Queue[str],
-    queued_pages: set[str],
-    seen_pages: set[str],
+    enqueue_page,
     enqueue_asset,
     options: CrawlOptions,
 ) -> None:
@@ -505,9 +586,7 @@ def _discover_attr(
     )
 
     if is_page:
-        if abs_url not in seen_pages and abs_url not in queued_pages:
-            q_pages.put(abs_url)
-            queued_pages.add(abs_url)
+        enqueue_page(abs_url)
         return
 
     _enqueue_asset_candidate(

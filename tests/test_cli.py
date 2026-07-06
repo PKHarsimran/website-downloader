@@ -39,6 +39,12 @@ def test_validate_args_rejects_invalid_limits() -> None:
         validate_args(args)
 
 
+def test_validate_args_rejects_invalid_page_threads() -> None:
+    args = parse_args(["--url", "https://example.com", "--page-threads", "0"])
+    with pytest.raises(ValueError):
+        validate_args(args)
+
+
 def test_parse_header_accepts_authorization_header() -> None:
     assert parse_header("Authorization: Bearer token") == ("Authorization", "Bearer token")
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `--page-threads` fetches HTML pages concurrently (default 1 keeps the previous polite sequential behavior). Roughly 3-4x faster on multi-page sites with 4 workers. `--render-js` always uses a single page worker because Playwright's sync API is single-threaded.
+
 ### Fixed
 
 - `--update` re-crawls no longer discover links from saved pages (whose links are already rewritten to local paths, producing bogus 404 URLs); known pages and assets are re-seeded from the update cache instead.
@@ -15,6 +19,7 @@
 - New optional `.[fast]` extra installs lxml for faster HTML parsing; it is auto-detected and used when available.
 - Pages are parsed from raw bytes so BeautifulSoup honors `<meta charset>` declarations and BOMs when servers omit a charset header.
 - `CrawlStats` gained an `errors` counter, and the end-of-crawl summary now reports pages, assets, cache hits, and errors.
+- A page that fails mid-processing is now logged and counted as an error instead of aborting the whole crawl.
 - Removed redundant URL re-parsing in the link discovery hot path and no longer pre-creates directories for queued assets (avoids empty folders for failed downloads).
 
 ## v2.5.0 - 2026-06-28
