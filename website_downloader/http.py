@@ -84,13 +84,17 @@ def fetch_html(
         headers = dict(response.headers)
         if response.status_code == 304:
             soup = _read_cached_html(cached_path)
-            return HtmlFetchResult(
-                soup=soup,
-                status_code=304,
-                headers=headers,
-                not_modified=True,
-                content_type=response.headers.get("Content-Type"),
-            )
+            if soup is not None:
+                return HtmlFetchResult(
+                    soup=soup,
+                    status_code=304,
+                    headers=headers,
+                    not_modified=True,
+                    content_type=response.headers.get("Content-Type"),
+                )
+            log.info("Server sent 304 but local copy is missing; refetching %s", url)
+            response = session.get(url, timeout=timeout)
+            headers = dict(response.headers)
         response.raise_for_status()
         return HtmlFetchResult(
             soup=BeautifulSoup(response.text, "html.parser"),
@@ -129,19 +133,31 @@ def fetch_binary(
         log.debug("Skipping non-fetchable URL: %s", url)
         return None
     if dest.exists() and not update:
-        return None
+        # Already mirrored in a previous run; report it as cached.
+        return BinaryFetchResult(
+            path=dest,
+            status_code=200,
+            headers={},
+            not_modified=True,
+        )
 
     try:
         response = session.get(url, timeout=timeout, stream=True, headers=conditional_headers)
         headers = dict(response.headers)
-        if response.status_code == 304 and dest.exists():
-            return BinaryFetchResult(
-                path=dest,
-                status_code=304,
-                headers=headers,
-                not_modified=True,
-                content_type=response.headers.get("Content-Type"),
-            )
+        if response.status_code == 304:
+            if dest.exists():
+                return BinaryFetchResult(
+                    path=dest,
+                    status_code=304,
+                    headers=headers,
+                    not_modified=True,
+                    content_type=response.headers.get("Content-Type"),
+                )
+            # A 304 has no body; without the local file we must refetch,
+            # otherwise we would write an empty asset.
+            log.info("Server sent 304 but local copy is missing; refetching %s", url)
+            response = session.get(url, timeout=timeout, stream=True)
+            headers = dict(response.headers)
         response.raise_for_status()
         if _too_large(response, max_asset_bytes):
             log.warning("Skipping asset over size limit: %s", url)

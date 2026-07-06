@@ -19,9 +19,8 @@ class ConditionalHandler(QuietHandler):
     etag = '"test-etag"'
 
     def end_headers(self) -> None:
-        if self.path.endswith(".html") or self.path == "/":
-            self.send_header("ETag", self.etag)
-            self.send_header("Last-Modified", "Wed, 21 Oct 2015 07:28:00 GMT")
+        self.send_header("ETag", self.etag)
+        self.send_header("Last-Modified", "Wed, 21 Oct 2015 07:28:00 GMT")
         super().end_headers()
 
     def do_GET(self) -> None:
@@ -122,7 +121,17 @@ def local_site(tmp_path: Path) -> Iterator[tuple[str, Path]]:
 def conditional_site(tmp_path: Path) -> Iterator[tuple[str, Path]]:
     site = tmp_path / "conditional-site"
     site.mkdir()
-    (site / "index.html").write_text("<html><body>Cached</body></html>", encoding="utf-8")
+    (site / "index.html").write_text(
+        """
+        <html>
+          <head><link rel="stylesheet" href="/style.css"></head>
+          <body>Cached <a href="/other">Other</a></body>
+        </html>
+        """,
+        encoding="utf-8",
+    )
+    (site / "other").write_text("<html><body>Other page</body></html>", encoding="utf-8")
+    (site / "style.css").write_text("body { color: red; }", encoding="utf-8")
 
     with serve_directory_with_handler(site, ConditionalHandler) as base_url:
         yield base_url, site

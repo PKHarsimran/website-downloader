@@ -116,6 +116,12 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
         download_q.put((abs_url, dest))
 
     enqueue_page(start_url)
+    if options.update:
+        # Saved pages contain rewritten local links, so a 304 page cannot be
+        # re-discovered from its own HTML. Seed known pages from the cache.
+        for cached_url, entry in crawl_cache.entries.items():
+            if entry.kind == "page":
+                enqueue_page(cached_url)
     if options.sitemap:
         for sitemap_url in load_sitemap_urls(
             options.sitemap,
@@ -161,6 +167,10 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                 stats=stats,
                 progress=progress,
             )
+            if options.update:
+                for cached_url, entry in list(crawl_cache.entries.items()):
+                    if entry.kind == "asset":
+                        enqueue_asset(cached_url, Path(entry.path))
             while not q_pages.empty() and len(seen_pages) < options.max_pages:
                 page_url = canonicalize_url(q_pages.get())
                 if page_url in seen_pages:
@@ -189,22 +199,23 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                     progress.error()
                     continue
 
-                _discover_references(
-                    soup.soup,
-                    page_url=page_url,
-                    root=options.root,
-                    root_netloc=root_netloc,
-                    q_pages=q_pages,
-                    queued_pages=queued_pages,
-                    seen_pages=seen_pages,
-                    enqueue_asset=enqueue_asset,
-                    options=options,
-                )
-
                 if soup.not_modified:
+                    # The saved copy has links rewritten to local paths, so
+                    # discovering references from it would queue bogus URLs.
                     stats.pages_cached += 1
                     progress.page_saved(cached=True)
                 else:
+                    _discover_references(
+                        soup.soup,
+                        page_url=page_url,
+                        root=options.root,
+                        root_netloc=root_netloc,
+                        q_pages=q_pages,
+                        queued_pages=queued_pages,
+                        seen_pages=seen_pages,
+                        enqueue_asset=enqueue_asset,
+                        options=options,
+                    )
                     create_dir(local_path.parent)
                     rewrite_links(
                         soup.soup,

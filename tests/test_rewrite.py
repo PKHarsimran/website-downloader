@@ -25,6 +25,22 @@ def test_rewrite_css_queues_nested_asset(tmp_path: Path) -> None:
     assert queued == [("https://example.com/img/bg.png", tmp_path / "img" / "bg.png")]
 
 
+def test_rewrite_css_import_url_form_maps_once(tmp_path: Path) -> None:
+    queued: list[str] = []
+    rewritten = rewrite_css_text(
+        "@import url('/assets/theme.css?v=2');",
+        "https://example.com/assets/site.css",
+        site_root=tmp_path,
+        root_netloc="example.com",
+        base_dir=tmp_path / "assets",
+        download_external_assets=False,
+        enqueue_asset=lambda url, path: queued.append(url),
+    )
+
+    assert queued == ["https://example.com/assets/theme.css?v=2"]
+    assert '@import "theme-q' in rewritten
+
+
 def test_rewrite_js_leaves_api_routes_alone(tmp_path: Path) -> None:
     rewritten = rewrite_js_text(
         "const img = '/static/logo.png'; const api = '/api/data';",
