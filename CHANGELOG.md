@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `--update` re-crawls no longer discover links from saved pages (whose links are already rewritten to local paths, producing bogus 404 URLs); known pages and assets are re-seeded from the update cache instead.
+- A `304 Not Modified` response with a missing local copy now triggers a clean refetch instead of writing a zero-byte asset or skipping the page.
+- Assets already present on disk are reported as cached instead of counted as errors when re-running into the same folder.
+- CSS `@import url(...)` rules are mapped once; previously the rewritten local path was re-mapped and a garbage download URL was enqueued.
+- The Rich progress dashboard's cached counter now tracks cached pages and assets correctly.
+
+### Changed
+
+- New optional `.[fast]` extra installs lxml for faster HTML parsing; it is auto-detected and used when available.
+- Pages are parsed from raw bytes so BeautifulSoup honors `<meta charset>` declarations and BOMs when servers omit a charset header.
+- `CrawlStats` gained an `errors` counter, and the end-of-crawl summary now reports pages, assets, cache hits, and errors.
+- Removed redundant URL re-parsing in the link discovery hot path and no longer pre-creates directories for queued assets (avoids empty folders for failed downloads).
+
 ## v2.5.0 - 2026-06-28
 
 This release turns Website Downloader CLI into a more complete modern-site mirroring tool while keeping the default install lightweight and developer-friendly.

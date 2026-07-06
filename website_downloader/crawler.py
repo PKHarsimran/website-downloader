@@ -25,8 +25,6 @@ from .urltools import (
     is_httpish,
     is_internal,
     is_non_fetchable,
-    normalize_url,
-    protocol_fix,
 )
 
 log = logging.getLogger(__name__)
@@ -69,6 +67,7 @@ class CrawlStats:
     assets_cached: int = 0
     pages_written: int = 0
     assets_written: int = 0
+    errors: int = 0
 
 
 def crawl_site(options: CrawlOptions) -> CrawlStats:
@@ -98,20 +97,19 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
     stats = CrawlStats(pages_seen=0, assets_queued=0, elapsed_seconds=0.0)
 
     def enqueue_page(url: str) -> None:
-        normalized = normalize_url(canonicalize_url(url, start_url))
+        normalized = canonicalize_url(url, start_url)
         if normalized not in queued_pages and normalized not in seen_pages:
             q_pages.put(normalized)
             queued_pages.add(normalized)
 
     def enqueue_asset(url: str, dest: Path) -> None:
-        abs_url = normalize_url(canonicalize_url(url))
+        abs_url = canonicalize_url(url)
         with asset_lock:
             if abs_url in queued_assets:
                 return
             queued_assets.add(abs_url)
             stats.assets_queued = len(queued_assets)
         progress_reporter.asset_queued()
-        create_dir(dest.parent)
         log.debug("Queue asset: %s -> %s", abs_url, dest)
         download_q.put((abs_url, dest))
 
@@ -196,6 +194,7 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                     cached_path=local_path,
                 )
                 if soup is None or soup.soup is None:
+                    stats.errors += 1
                     progress.error()
                     continue
 
@@ -262,8 +261,12 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
     stats.elapsed_seconds = elapsed
     if seen_pages:
         log.info(
-            "Crawl finished: %s pages in %.2fs (%.2fs avg)",
+            "Crawl finished: %s pages (%s cached), %s assets (%s cached), %s errors in %.2fs (%.2fs/page)",
             len(seen_pages),
+            stats.pages_cached,
+            stats.assets_written,
+            stats.assets_cached,
+            stats.errors,
             elapsed,
             elapsed / len(seen_pages),
         )
@@ -339,6 +342,8 @@ def _start_workers(
                     conditional_headers=cache.conditional_headers(url) if options.update else None,
                 )
                 if result is None:
+                    with record_lock:
+                        stats.errors += 1
                     progress.error()
                     continue
                 if result.not_modified:
@@ -488,7 +493,7 @@ def _discover_attr(
     if _skip_candidate(link_raw):
         return
 
-    abs_url = normalize_url(canonicalize_url(protocol_fix(link_raw, page_url), page_url))
+    abs_url = canonicalize_url(link_raw, page_url)
     parsed = urlparse(abs_url)
     is_ext = not is_internal(abs_url, root_netloc)
     suffix = Path(parsed.path).suffix.lower()
@@ -552,11 +557,7 @@ def _enqueue_asset_candidate(
 ) -> None:
     if _skip_candidate(candidate):
         return
-    abs_url = normalize_url(
-        candidate
-        if already_absolute
-        else canonicalize_url(protocol_fix(candidate, page_url), page_url)
-    )
+    abs_url = candidate if already_absolute else canonicalize_url(candidate, page_url)
     parsed = urlparse(abs_url)
     if _skip_candidate(abs_url):
         return

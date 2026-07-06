@@ -56,7 +56,7 @@ class RichProgressReporter(ProgressReporter):
         )
         self.assets_queued = 0
         self.assets_saved = 0
-        self.pages_cached = 0
+        self.cached_total = 0
 
     def __enter__(self) -> RichProgressReporter:
         self.progress.__enter__()
@@ -80,7 +80,7 @@ class RichProgressReporter(ProgressReporter):
 
     def page_saved(self, cached: bool = False) -> None:
         if cached:
-            self.pages_cached += 1
+            self.cached_total += 1
             self._refresh_fields()
         self.progress.advance(self.task_id)
 
@@ -91,7 +91,7 @@ class RichProgressReporter(ProgressReporter):
     def asset_saved(self, cached: bool = False) -> None:
         self.assets_saved += 1
         if cached:
-            self.pages_cached += 1
+            self.cached_total += 1
         self._refresh_fields()
 
     def _refresh_fields(self) -> None:
@@ -99,7 +99,7 @@ class RichProgressReporter(ProgressReporter):
             self.task_id,
             assets_queued=self.assets_queued,
             assets_saved=self.assets_saved,
-            cached=self.pages_cached,
+            cached=self.cached_total,
         )
 
 

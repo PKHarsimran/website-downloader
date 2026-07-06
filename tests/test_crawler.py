@@ -162,6 +162,22 @@ def test_update_refetches_when_local_mirror_deleted(conditional_site, tmp_path: 
     assert (output / "style.css").read_bytes() != b""
 
 
+def test_crawl_counts_fetch_failures_in_stats(local_site, tmp_path: Path) -> None:
+    base_url, _site = local_site
+    output = tmp_path / "mirror"
+
+    stats = crawl_site(
+        CrawlOptions(
+            start_url=f"{base_url}missing-page.html",
+            root=output,
+            max_pages=1,
+        )
+    )
+
+    assert stats.errors == 1
+    assert stats.pages_written == 0
+
+
 def test_recrawl_without_update_treats_existing_assets_as_cached(
     local_site, tmp_path: Path
 ) -> None:

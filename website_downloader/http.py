@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
-from .constants import CHUNK_SIZE, DEFAULT_HEADERS, TIMEOUT
+from .constants import CHUNK_SIZE, DEFAULT_HEADERS, HTML_PARSER, TIMEOUT
 from .paths import create_dir, shorten_segment
 from .rewrite import EnqueueAsset, rewrite_css_text, rewrite_js_text
 from .urltools import is_allowed_external, is_httpish, is_internal, is_non_fetchable
@@ -75,7 +75,7 @@ def fetch_html(
         if renderer is not None:
             html = renderer.fetch(url)
             return HtmlFetchResult(
-                soup=BeautifulSoup(html, "html.parser"),
+                soup=BeautifulSoup(html, HTML_PARSER),
                 status_code=200,
                 headers={},
                 content_type="text/html",
@@ -96,8 +96,10 @@ def fetch_html(
             response = session.get(url, timeout=timeout)
             headers = dict(response.headers)
         response.raise_for_status()
+        # Parse from bytes so BeautifulSoup can honor <meta charset> and BOMs;
+        # response.text falls back to ISO-8859-1 when no charset header is sent.
         return HtmlFetchResult(
-            soup=BeautifulSoup(response.text, "html.parser"),
+            soup=BeautifulSoup(response.content, HTML_PARSER),
             status_code=response.status_code,
             headers=headers,
             content_type=response.headers.get("Content-Type"),
@@ -202,7 +204,7 @@ def fetch_binary(
 def _read_cached_html(cached_path: Path | None) -> BeautifulSoup | None:
     if cached_path is None or not cached_path.exists():
         return None
-    return BeautifulSoup(cached_path.read_text(encoding="utf-8", errors="ignore"), "html.parser")
+    return BeautifulSoup(cached_path.read_text(encoding="utf-8", errors="ignore"), HTML_PARSER)
 
 
 def _too_large(response: requests.Response, max_asset_bytes: int | None) -> bool:

@@ -55,6 +55,7 @@ Start with the core install, then add extras only when you need them:
 | --- | --- |
 | `pip install -e .` | Normal static-site crawling with `requests` and BeautifulSoup. |
 | `pip install -e ".[dev]"` | Tests, formatting, linting, and local contributor work. |
+| `pip install -e ".[fast]"` | Faster HTML parsing with lxml (used automatically when installed). |
 | `pip install -e ".[render]"` | Playwright-powered JavaScript rendering with `--render-js` or `--headless`. |
 | `pip install -e ".[ux]"` | Rich-powered terminal progress with `--progress`. |
 
