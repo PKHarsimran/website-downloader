@@ -35,6 +35,7 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
 ]
+fast = ["lxml>=5.0"]
 render = ["playwright>=1.45"]
 ux = ["rich>=13.7"]
 

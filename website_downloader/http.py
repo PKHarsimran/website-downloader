@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
-from .constants import CHUNK_SIZE, DEFAULT_HEADERS, TIMEOUT
+from .constants import CHUNK_SIZE, DEFAULT_HEADERS, HTML_PARSER, TIMEOUT
 from .paths import create_dir, shorten_segment
 from .rewrite import EnqueueAsset, rewrite_css_text, rewrite_js_text
 from .urltools import is_allowed_external, is_httpish, is_internal, is_non_fetchable
@@ -75,7 +75,7 @@ def fetch_html(
         if renderer is not None:
             html = renderer.fetch(url)
             return HtmlFetchResult(
-                soup=BeautifulSoup(html, "html.parser"),
+                soup=BeautifulSoup(html, HTML_PARSER),
                 status_code=200,
                 headers={},
                 content_type="text/html",
@@ -84,16 +84,22 @@ def fetch_html(
         headers = dict(response.headers)
         if response.status_code == 304:
             soup = _read_cached_html(cached_path)
-            return HtmlFetchResult(
-                soup=soup,
-                status_code=304,
-                headers=headers,
-                not_modified=True,
-                content_type=response.headers.get("Content-Type"),
-            )
+            if soup is not None:
+                return HtmlFetchResult(
+                    soup=soup,
+                    status_code=304,
+                    headers=headers,
+                    not_modified=True,
+                    content_type=response.headers.get("Content-Type"),
+                )
+            log.info("Server sent 304 but local copy is missing; refetching %s", url)
+            response = session.get(url, timeout=timeout)
+            headers = dict(response.headers)
         response.raise_for_status()
+        # Parse from bytes so BeautifulSoup can honor <meta charset> and BOMs;
+        # response.text falls back to ISO-8859-1 when no charset header is sent.
         return HtmlFetchResult(
-            soup=BeautifulSoup(response.text, "html.parser"),
+            soup=BeautifulSoup(response.content, HTML_PARSER),
             status_code=response.status_code,
             headers=headers,
             content_type=response.headers.get("Content-Type"),
@@ -129,19 +135,31 @@ def fetch_binary(
         log.debug("Skipping non-fetchable URL: %s", url)
         return None
     if dest.exists() and not update:
-        return None
+        # Already mirrored in a previous run; report it as cached.
+        return BinaryFetchResult(
+            path=dest,
+            status_code=200,
+            headers={},
+            not_modified=True,
+        )
 
     try:
         response = session.get(url, timeout=timeout, stream=True, headers=conditional_headers)
         headers = dict(response.headers)
-        if response.status_code == 304 and dest.exists():
-            return BinaryFetchResult(
-                path=dest,
-                status_code=304,
-                headers=headers,
-                not_modified=True,
-                content_type=response.headers.get("Content-Type"),
-            )
+        if response.status_code == 304:
+            if dest.exists():
+                return BinaryFetchResult(
+                    path=dest,
+                    status_code=304,
+                    headers=headers,
+                    not_modified=True,
+                    content_type=response.headers.get("Content-Type"),
+                )
+            # A 304 has no body; without the local file we must refetch,
+            # otherwise we would write an empty asset.
+            log.info("Server sent 304 but local copy is missing; refetching %s", url)
+            response = session.get(url, timeout=timeout, stream=True)
+            headers = dict(response.headers)
         response.raise_for_status()
         if _too_large(response, max_asset_bytes):
             log.warning("Skipping asset over size limit: %s", url)
@@ -186,7 +204,7 @@ def fetch_binary(
 def _read_cached_html(cached_path: Path | None) -> BeautifulSoup | None:
     if cached_path is None or not cached_path.exists():
         return None
-    return BeautifulSoup(cached_path.read_text(encoding="utf-8", errors="ignore"), "html.parser")
+    return BeautifulSoup(cached_path.read_text(encoding="utf-8", errors="ignore"), HTML_PARSER)
 
 
 def _too_large(response: requests.Response, max_asset_bytes: int | None) -> bool:

@@ -4,6 +4,10 @@ import re
 from importlib.util import find_spec
 
 HAS_BROTLI = find_spec("brotli") is not None or find_spec("brotlicffi") is not None
+HAS_LXML = find_spec("lxml") is not None
+
+# lxml parses markup much faster than the stdlib parser; use it when installed.
+HTML_PARSER = "lxml" if HAS_LXML else "html.parser"
 
 LOG_FMT = "%(asctime)s | %(levelname)-8s | %(threadName)s | %(message)s"
 

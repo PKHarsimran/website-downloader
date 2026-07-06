@@ -65,6 +65,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-pages", type=int, default=50, help="Maximum HTML pages to crawl.")
     parser.add_argument("--threads", type=int, default=6, help="Concurrent asset download workers.")
     parser.add_argument(
+        "--page-threads",
+        type=int,
+        default=1,
+        help=(
+            "Concurrent HTML page fetch workers. The default of 1 crawls politely; "
+            "raise it to speed up large mirrors. --render-js always uses 1."
+        ),
+    )
+    parser.add_argument(
         "--download-external-assets",
         action="store_true",
         help="Download external CDN/static assets and rewrite allowed links locally.",
@@ -199,6 +208,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-pages must be >= 1")
     if args.threads < 1:
         raise ValueError("--threads must be >= 1")
+    if args.page_threads < 1:
+        raise ValueError("--page-threads must be >= 1")
     if args.delay < 0:
         raise ValueError("--delay must be >= 0")
     if args.max_asset_bytes is not None and args.max_asset_bytes < 1:
@@ -227,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         root=make_root(args.url, args.destination),
         max_pages=args.max_pages,
         threads=args.threads,
+        page_threads=args.page_threads,
         download_external_assets=download_external_assets,
         external_domains=normalize_external_domains(args.external_domains),
         cookies=cookies,

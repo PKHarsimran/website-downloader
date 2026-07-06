@@ -1,64 +1,81 @@
-# Website Downloader CLI
+<div align="center">
+
+# 🌐 Website Downloader CLI
+
+**Turn any website you're authorized to copy into a fast, browsable offline mirror — with one command.**
 
 [![CI - Website Downloader](https://github.com/PKHarsimran/website-downloader/actions/workflows/python-app.yml/badge.svg)](https://github.com/PKHarsimran/website-downloader/actions/workflows/python-app.yml)
 [![Lint & Style](https://github.com/PKHarsimran/website-downloader/actions/workflows/lint.yml/badge.svg)](https://github.com/PKHarsimran/website-downloader/actions/workflows/lint.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Last Commit](https://img.shields.io/github/last-commit/PKHarsimran/website-downloader)](https://github.com/PKHarsimran/website-downloader/commits/main)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/PKHarsimran/website-downloader/pulls)
 
-Website Downloader CLI turns a public or authorized website into a browsable offline copy. It crawls pages, downloads assets, rewrites links, and saves everything into a local folder you can open, inspect, archive, or move into a migration workflow.
+*A modern, hackable alternative to `wget --mirror` and HTTrack — built in pure Python, without dragging in a heavy crawler framework.*
 
-It is built for developers who want something more modern and hackable than `wget --mirror`, without jumping straight into a heavy crawler framework.
+</div>
 
-## Why Use It
+---
 
-| Need | What this tool gives you |
-| --- | --- |
-| Offline browsing | Saves HTML pages and local asset references that work from disk. |
-| Migration prep | Captures the old site before a rebuild, redesign, or host move. |
-| Static-site review | Lets you inspect pages, CSS, JS, images, fonts, and media locally. |
-| Authenticated snapshots | Reuses cookies for portals, intranets, and staging sites you are allowed to access. |
-| Modern asset handling | Understands `srcset`, `data-src`, `poster`, inline styles, CSS imports, meta images, and common JS asset strings. |
-| Controlled CDN mirroring | Downloads only the external domains you allow into `cdn/<domain>/...`. |
-| Ongoing archives | Uses `ETag` and `Last-Modified` metadata to skip unchanged resources with `--update`. |
-| Portable exports | Can produce zip archives and WARC response archives for sharing or long-term storage. |
+```console
+$ website-downloader --url https://example.com --destination example_backup --page-threads 4
 
-## Quick Start
+14:32:01 | INFO     | MainThread | [1/50] https://example.com/
+14:32:01 | INFO     | MainThread | [2/50] https://example.com/blog/
+14:32:02 | INFO     | MainThread | [3/50] https://example.com/about
+...
+14:32:09 | INFO     | MainThread | Crawl finished: 50 pages (0 cached), 214 assets (0 cached), 0 errors in 8.42s (0.17s/page)
+```
+
+Open `example_backup/index.html` in your browser — the whole site works from disk: pages, styles, scripts, images, fonts, and media, all with links rewritten for offline browsing.
+
+## ⚡ Quick Start
 
 ```bash
 git clone https://github.com/PKHarsimran/website-downloader.git
 cd website-downloader
 
 python -m venv .venv
-.venv\Scripts\activate
+.venv\Scripts\activate        # macOS/Linux: source .venv/bin/activate
 pip install -e .
 
 website-downloader --url https://example.com --destination example_backup --max-pages 100
 ```
 
-The compatibility script still works too:
+The classic script entry point still works too:
 
 ```bash
 python website-downloader.py --url https://example.com --destination example_backup
 ```
 
-On macOS or Linux, activate the virtual environment with:
+## 🤔 Why Not Just wget or HTTrack?
 
-```bash
-source .venv/bin/activate
-```
+Those tools are great — until you hit a modern website. This project exists for the gap between "one-liner that misses half the assets" and "write your own Scrapy project."
 
-## Install Options
+| | **website-downloader** | wget --mirror | HTTrack | Scrapy |
+| --- | :-: | :-: | :-: | :-: |
+| Modern assets: `srcset`, `data-src`, `poster`, CSS `@import`, JS asset strings | ✅ | partial | partial | build it yourself |
+| JavaScript rendering (React, Vue, Next.js) | ✅ Playwright | ❌ | ❌ | plugin |
+| Incremental re-mirroring (`ETag` / `Last-Modified`) | ✅ | timestamps only | ✅ | manual |
+| Cookies + custom headers for authorized portals | ✅ | ✅ | ✅ | ✅ |
+| Selective CDN mirroring with a domain allowlist | ✅ | ❌ | partial | manual |
+| Zip + WARC export | ✅ | WARC ✅ | ❌ | manual |
+| Windows-safe paths (long paths, reserved names, query hashing) | ✅ | ❌ | partial | manual |
+| Small, readable Python codebase you can extend | ✅ | ❌ (C) | ❌ (C) | framework |
 
-Start with the core install, then add extras only when you need them:
+## ✨ Highlights
 
-| Install | Use when you want |
-| --- | --- |
-| `pip install -e .` | Normal static-site crawling with `requests` and BeautifulSoup. |
-| `pip install -e ".[dev]"` | Tests, formatting, linting, and local contributor work. |
-| `pip install -e ".[render]"` | Playwright-powered JavaScript rendering with `--render-js` or `--headless`. |
-| `pip install -e ".[ux]"` | Rich-powered terminal progress with `--progress`. |
+- 🚀 **Fast** — parallel page fetching (`--page-threads`, ~3–4× faster on multi-page sites), threaded asset downloads, and optional lxml parsing (`pip install -e ".[fast]"`).
+- 🔁 **Incremental** — `--update` skips unchanged pages and assets using `ETag`/`Last-Modified`, perfect for recurring archives.
+- ⚛️ **JavaScript-aware** — optional Playwright rendering for client-rendered sites (`--render-js`).
+- 🍪 **Authenticated** — reuse browser cookies and custom headers for portals, intranets, and staging sites you're allowed to access.
+- 🧭 **Sitemap seeding** — start from `sitemap.xml` (including nested sitemap indexes) for complete discovery.
+- 📦 **Portable output** — export mirrors as zip archives or WARC 1.1 response records.
+- 🤝 **Polite by default** — sequential pages unless you opt in, `--respect-robots`, `--delay`, retry with backoff, and per-asset size caps.
+- 🪟 **Cross-platform paths** — sanitizes Windows reserved names, shortens long paths, and hashes query strings to avoid collisions.
+- 🧪 **Tested** — pytest suite running against a real local HTTP fixture server, with CI and lint gates.
 
-## How It Works
+## 🛠 How It Works
 
 ```mermaid
 flowchart TD
@@ -100,10 +117,22 @@ In plain English:
 4. It finds links, images, scripts, stylesheets, fonts, media, and metadata assets.
 5. It follows same-site pages up to your `--max-pages` limit.
 6. It saves assets locally and rewrites references so pages still work offline.
-7. With `--update`, unchanged resources can be skipped using cache metadata.
-8. With `--zip-output` or `--warc-output`, the result can also be exported as an archive.
+7. With `--update`, unchanged resources are skipped using cache metadata.
+8. With `--zip-output` or `--warc-output`, the result is also exported as an archive.
 
-## Common Commands
+## 📦 Install Options
+
+Start with the core install, then add extras only when you need them:
+
+| Install | Use when you want |
+| --- | --- |
+| `pip install -e .` | Normal static-site crawling with `requests` and BeautifulSoup. |
+| `pip install -e ".[fast]"` | Faster HTML parsing with lxml (used automatically when installed). |
+| `pip install -e ".[render]"` | Playwright-powered JavaScript rendering with `--render-js` or `--headless`. |
+| `pip install -e ".[ux]"` | Rich-powered terminal progress with `--progress`. |
+| `pip install -e ".[dev]"` | Tests, formatting, linting, and local contributor work. |
+
+## 📖 Cookbook
 
 Mirror a small public site:
 
@@ -113,6 +142,17 @@ website-downloader ^
   --destination example_backup ^
   --max-pages 50
 ```
+
+Speed up a large mirror with parallel page fetching:
+
+```bash
+website-downloader ^
+  --url https://example.com ^
+  --max-pages 500 ^
+  --page-threads 4
+```
+
+`--page-threads` defaults to 1 so crawls stay polite; raise it only for sites that can handle concurrent requests. `--render-js` always uses a single page worker.
 
 Download selected CDN assets:
 
@@ -196,7 +236,7 @@ website-downloader ^
   --warc-output example_backup.warc
 ```
 
-## JavaScript-Rendered Sites
+## ⚛️ JavaScript-Rendered Sites
 
 Some modern sites do not expose their real links and assets until JavaScript runs. For those, install the optional Playwright extra:
 
@@ -210,7 +250,7 @@ website-downloader --url https://example.com --render-js --max-pages 20
 
 `--render-js` and `--headless` are optional because Playwright is heavier than the default `requests` + BeautifulSoup path. Use them when a normal crawl only captures an empty app shell or misses important client-rendered links.
 
-## Live Progress
+## 📊 Live Progress
 
 Install the optional UX extra for a Rich-powered terminal dashboard:
 
@@ -221,10 +261,11 @@ website-downloader --url https://example.com --progress
 
 If `rich` is not installed, the crawler falls back to normal logging instead of failing.
 
-## Feature Flags At A Glance
+## 🎛 Feature Flags At A Glance
 
 | Flag | What it does | Best for |
 | --- | --- | --- |
+| `--page-threads` | Fetches HTML pages concurrently (default 1). | Faster mirroring of large sites that tolerate concurrent requests. |
 | `--render-js` / `--headless` | Uses Playwright before parsing the page. | React, Vue, Angular, Next.js, and other client-rendered sites. |
 | `--cookie-file` | Sends saved browser/session cookies. | Authorized portals, staging sites, docs behind login. |
 | `--header` | Adds custom request headers. | Bearer tokens, staging headers, API gateway headers. |
@@ -234,7 +275,7 @@ If `rich` is not installed, the crawler falls back to normal logging instead of 
 | `--zip-output` | Exports the mirror folder as a zip. | Sharing, attaching, or storing snapshots. |
 | `--warc-output` | Writes a simple WARC response archive. | Archival workflows and future replay tooling. |
 
-## What Gets Rewritten
+## 🔁 What Gets Rewritten
 
 | Source | Rewritten for offline use |
 | --- | --- |
@@ -249,7 +290,7 @@ If `rich` is not installed, the crawler falls back to normal logging instead of 
 
 When external scripts or stylesheets are localized, the tool removes `integrity` and `crossorigin` where needed because those attributes often break offline copies.
 
-## Output Example
+## 📁 Output Example
 
 ```text
 example_backup/
@@ -270,27 +311,7 @@ example_backup/
 
 Open `index.html` in your browser to browse the mirrored copy.
 
-## Feature Snapshot
-
-- Same-origin recursive crawling.
-- Optional external asset downloading with domain allowlists.
-- Cookie-based authenticated crawling.
-- Custom request headers for bearer tokens and staging environments.
-- Optional JavaScript rendering with Playwright.
-- Sitemap-aware crawl seeding.
-- Incremental update mode using `ETag` and `Last-Modified`.
-- Optional Rich-powered progress dashboard.
-- Zip and WARC output formats.
-- Retry and backoff for unstable requests.
-- Worker-thread asset downloads.
-- Path sanitization for Windows/macOS/Linux.
-- Query-string hashing to avoid filename collisions.
-- Long-path fallback handling.
-- Local pytest suite and CI checks.
-
-## Local Development
-
-Install the development extra:
+## 🧑‍💻 Development
 
 ```bash
 pip install -e ".[dev]"
@@ -300,20 +321,15 @@ isort . --check-only
 ruff check .
 ```
 
-### PyCharm
+Using PyCharm? Open the repo folder, point it at a Python 3.10+ virtualenv, run `pip install -e ".[dev]"` in the terminal, and use the pytest runner on the `tests` folder.
 
-1. Open this repository folder in PyCharm.
-2. Create or select a Python 3.10+ virtual environment.
-3. In the PyCharm terminal, run `pip install -e ".[dev]"`.
-4. Run the `tests` folder with PyCharm's pytest runner.
-5. For manual CLI testing, create a Python run configuration for `website_downloader.cli` or run `python website-downloader.py --help`.
-
-## Project Structure
+<details>
+<summary><b>Project structure</b></summary>
 
 | Path | Purpose |
 | --- | --- |
 | `website_downloader/cli.py` | Argument parsing, validation, logging, and CLI entry point. |
-| `website_downloader/crawler.py` | Crawl coordination, asset queueing, workers, robots.txt support, and stats. |
+| `website_downloader/crawler.py` | Crawl coordination, page/asset worker pools, robots.txt support, and stats. |
 | `website_downloader/http.py` | Requests sessions, HTML fetches, binary downloads, and downloaded CSS/JS post-processing. |
 | `website_downloader/rewrite.py` | HTML, CSS, JavaScript, and `srcset` reference rewriting. |
 | `website_downloader/paths.py` | Filesystem-safe page, asset, and CDN path mapping. |
@@ -324,33 +340,31 @@ ruff check .
 | `website_downloader/exports.py` | Zip and WARC export helpers. |
 | `tests/` | Local pytest suite with a tiny fixture HTTP server. |
 
-## Roadmap Ideas
+</details>
 
-These are natural next steps for making the project more useful to developers:
+## 🗺 Roadmap
 
 - `--manifest crawl.json` with pages, assets, status codes, titles, headings, and errors.
 - Login-flow recording for complex SSO sites.
 - Stronger WARC metadata and replay compatibility.
 - Visual diff mode for migration and redesign checks.
 
-## Responsible Use
+Have an idea? [Open an issue](https://github.com/PKHarsimran/website-downloader/issues) — feature requests and bug reports are very welcome.
+
+## 🛡 Responsible Use
 
 Only mirror sites you own, have permission to archive, or are legally allowed to access. Authentication cookies can expose private content, so keep cookie files out of source control and avoid sharing generated mirrors that contain private data. Use `--respect-robots`, lower `--threads`, and `--delay` for polite crawling.
 
-## Licensing And Ownership
+## 🤝 Contributing
 
-This project is licensed under the MIT License. Others may use, copy, modify, and distribute the code if they keep the license notice. Your original code remains your copyrighted work, but the MIT license intentionally allows broad reuse.
+Contributions are welcome! Open an issue or pull request for bug reports, feature ideas, or improvements. The codebase is intentionally small and modular — most features live in a single focused module, so it's an easy project to hack on.
 
-If the project becomes a product, consider choosing a distinctive brand name and protecting that brand separately from the source code license.
+If this tool saved you time, consider **starring the repo** ⭐ — it helps others find it.
 
-## Support This Project
+## ☕ Support This Project
 
 [Donate via PayPal](https://www.paypal.com/donate/?business=PJVPSXG6V4CUG&no_recurring=1&item_name=Thank+you+for+the+coffee+%3A%29&currency_code=CAD)
 
-## Contributing
+## 📄 License
 
-Contributions are welcome. Please open an issue or pull request for bug reports, feature ideas, or improvements.
-
-## License
-
-This project is licensed under the MIT License.
+MIT — use it, fork it, ship it. See [LICENSE](LICENSE) for details.

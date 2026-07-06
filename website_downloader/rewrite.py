@@ -132,7 +132,9 @@ def rewrite_css_text(
             return match.group(0)
         return f'@import "{mapped}";'
 
-    return CSS_IMPORT_RE.sub(repl_import, CSS_URL_RE.sub(repl_url, css_text))
+    # Imports first: running the url() pass first would leave the import
+    # pass re-mapping already-rewritten local paths as if they were URLs.
+    return CSS_URL_RE.sub(repl_url, CSS_IMPORT_RE.sub(repl_import, css_text))
 
 
 def rewrite_js_text(
