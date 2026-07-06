@@ -17,15 +17,11 @@
 
 ---
 
-```console
-$ website-downloader --url https://example.com --destination example_backup --page-threads 4
+<div align="center">
 
-14:32:01 | INFO     | MainThread | [1/50] https://example.com/
-14:32:01 | INFO     | MainThread | [2/50] https://example.com/blog/
-14:32:02 | INFO     | MainThread | [3/50] https://example.com/about
-...
-14:32:09 | INFO     | MainThread | Crawl finished: 50 pages (0 cached), 214 assets (0 cached), 0 errors in 8.42s (0.17s/page)
-```
+![Website Downloader CLI in action](docs/demo.gif)
+
+</div>
 
 Open `example_backup/index.html` in your browser — the whole site works from disk: pages, styles, scripts, images, fonts, and media, all with links rewritten for offline browsing.
 
