@@ -33,6 +33,12 @@ log = logging.getLogger(__name__)
 
 PAGE_SUFFIXES = {"", ".html", ".htm"}
 
+# Tags whose asset references are downloaded even when the URL has no file
+# extension. Media served from extensionless endpoints (e.g. OpenProject
+# attachment ".../attachments/228/content" URLs) must be fetched as binary,
+# not skipped or mistaken for an HTML page.
+EXTENSIONLESS_ASSET_TAGS = {"script", "link", "img", "source", "video", "audio", "embed", "track"}
+
 
 @dataclass
 class CrawlOptions:
@@ -533,6 +539,7 @@ def _discover_references(
                         root_netloc=root_netloc,
                         enqueue_asset=enqueue_asset,
                         options=options,
+                        tag_name=tag.name,
                     )
 
         if tag.has_attr("style"):
@@ -648,7 +655,7 @@ def _enqueue_asset_candidate(
         if not is_allowed_external(abs_url, options.external_domains):
             log.debug("Blocked external asset outside whitelist: %s", abs_url)
             return
-        if tag_name not in {"script", "link"} and not parsed.path.lower().endswith(
+        if tag_name not in EXTENSIONLESS_ASSET_TAGS and not parsed.path.lower().endswith(
             ASSET_EXTENSIONS
         ):
             return
@@ -659,7 +666,7 @@ def _enqueue_asset_candidate(
     if (
         parsed.path
         and not parsed.path.lower().endswith(ASSET_EXTENSIONS)
-        and tag_name not in {"script", "link"}
+        and tag_name not in EXTENSIONLESS_ASSET_TAGS
     ):
         return
 
