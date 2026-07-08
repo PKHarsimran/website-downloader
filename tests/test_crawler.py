@@ -69,9 +69,7 @@ def test_crawl_site_parallel_pages_mirrors_local_fixture(local_site, tmp_path: P
     assert 'href="assets/site.css"' in html
 
 
-def test_crawl_downloads_extensionless_attachment_image(
-    attachment_site, tmp_path: Path
-) -> None:
+def test_crawl_downloads_extensionless_attachment_image(attachment_site, tmp_path: Path) -> None:
     base_url, _site, png_bytes = attachment_site
     output = tmp_path / "mirror"
 
