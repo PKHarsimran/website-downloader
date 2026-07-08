@@ -117,6 +117,32 @@ def local_site(tmp_path: Path) -> Iterator[tuple[str, Path]]:
         yield base_url, site
 
 
+PNG_BYTES = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
+    "890000000a49444154789c6300010000050001"
+)
+
+
+@pytest.fixture
+def attachment_site(tmp_path: Path) -> Iterator[tuple[str, Path, bytes]]:
+    """Site with an image served from an extensionless attachment URL."""
+    site = tmp_path / "attachment-site"
+    (site / "attachments" / "228").mkdir(parents=True)
+    (site / "index.html").write_text(
+        """
+        <html><body>
+          <img class="op-uc-image" src="/attachments/228/content">
+        </body></html>
+        """,
+        encoding="utf-8",
+    )
+    # No file extension; served as application/octet-stream binary data.
+    (site / "attachments" / "228" / "content").write_bytes(PNG_BYTES)
+
+    with serve_directory(site) as base_url:
+        yield base_url, site, PNG_BYTES
+
+
 @pytest.fixture
 def conditional_site(tmp_path: Path) -> Iterator[tuple[str, Path]]:
     site = tmp_path / "conditional-site"

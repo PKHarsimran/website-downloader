@@ -52,6 +52,7 @@ def _map_asset_url(
     download_external_assets: bool,
     external_domains: set[str] | None = None,
     enqueue_asset: EnqueueAsset | None = None,
+    require_extension: bool = True,
 ) -> str | None:
     if _skippable_url(url_part):
         return None
@@ -62,7 +63,11 @@ def _map_asset_url(
 
     abs_url = canonicalize_url(fixed_url, base_url)
     parsed = urlparse(abs_url)
-    if not parsed.path.lower().endswith(ASSET_EXTENSIONS):
+    # CSS/JS/meta callers require a known extension to avoid rewriting things
+    # that merely look like paths (e.g. API strings). Media callers such as
+    # srcset pass require_extension=False so extensionless attachment URLs are
+    # rewritten to match what the crawler downloads.
+    if require_extension and not parsed.path.lower().endswith(ASSET_EXTENSIONS):
         return None
 
     is_ext = not is_internal(abs_url, root_netloc)
@@ -322,6 +327,7 @@ def _rewrite_srcset(
             base_dir=page_dir,
             download_external_assets=download_external_assets,
             external_domains=external_domains,
+            require_extension=False,
         )
         if mapped is not None:
             parts[0] = mapped

@@ -69,6 +69,23 @@ def test_crawl_site_parallel_pages_mirrors_local_fixture(local_site, tmp_path: P
     assert 'href="assets/site.css"' in html
 
 
+def test_crawl_downloads_extensionless_attachment_image(attachment_site, tmp_path: Path) -> None:
+    base_url, _site, png_bytes = attachment_site
+    output = tmp_path / "mirror"
+
+    crawl_site(CrawlOptions(start_url=base_url, root=output, max_pages=1))
+
+    saved = output / "attachments" / "228" / "content"
+    assert saved.exists(), "extensionless attachment image should be downloaded"
+    assert saved.read_bytes() == png_bytes, "image bytes must be saved unchanged"
+
+    # The <img> must point at the local file, and it must NOT be turned into a
+    # crawled .html page.
+    html = (output / "index.html").read_text(encoding="utf-8")
+    assert "attachments/228/content" in html
+    assert not (output / "attachments" / "228" / "content.html").exists()
+
+
 def test_crawl_site_uses_sitemap_seed(local_site, tmp_path: Path) -> None:
     base_url, _site = local_site
     output = tmp_path / "mirror"
