@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## v2.6.1 - 2026-07-08
 
 ### Fixed
 
-- Images and media referenced from extensionless URLs (e.g. OpenProject attachment `.../attachments/228/content` endpoints) are now downloaded as binary assets. Previously such references were skipped during discovery while still being rewritten to a local path, leaving a broken link — and older versions mis-classified them as HTML pages and corrupted the file during text decoding. ([#49](https://github.com/PKHarsimran/website-downloader/issues/49))
+- Images and media referenced from extensionless URLs (e.g. OpenProject attachment `.../attachments/228/content` endpoints) are now downloaded as binary assets, and matching `srcset` candidates are rewritten to the local copy. Previously such references were skipped during discovery while still being rewritten to a local path, leaving a broken link — and older versions mis-classified them as HTML pages and corrupted the file during text decoding. ([#49](https://github.com/PKHarsimran/website-downloader/issues/49))
 
 ## v2.6.0 - 2026-07-06
 
