@@ -55,6 +55,27 @@ def test_rewrite_js_leaves_api_routes_alone(tmp_path: Path) -> None:
     assert "'/api/data'" in rewritten
 
 
+def test_rewrite_srcset_rewrites_extensionless_attachment(tmp_path: Path) -> None:
+    soup = BeautifulSoup(
+        '<img src="/attachments/228/content" '
+        'srcset="/attachments/228/content 1x, /attachments/229/content 2x">',
+        "html.parser",
+    )
+    rewrite_links(
+        soup,
+        "https://example.com/page/index.html",
+        tmp_path,
+        tmp_path / "page",
+        download_external_assets=False,
+    )
+
+    img = soup.find("img")
+    # Both the src and every srcset candidate must point at the local copy so
+    # offline mirrors and zip exports keep the responsive image working.
+    assert img["src"] == "../attachments/228/content"
+    assert img["srcset"] == "../attachments/228/content 1x, ../attachments/229/content 2x"
+
+
 def test_rewrite_links_skips_canonical_and_rewrites_assets(tmp_path: Path) -> None:
     soup = BeautifulSoup(
         """
