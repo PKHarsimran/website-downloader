@@ -355,12 +355,20 @@ Only mirror sites you own, have permission to archive, or are legally allowed to
 
 Contributions are welcome! Open an issue or pull request for bug reports, feature ideas, or improvements. The codebase is intentionally small and modular — most features live in a single focused module, so it's an easy project to hack on.
 
+By submitting a contribution, you agree to the [Contributor License Agreement](CLA.md): you keep the copyright to your work and license it to the project so it can be maintained and distributed (including under future licensing terms).
+
 If this tool saved you time, consider **starring the repo** ⭐ — it helps others find it.
 
 ## ☕ Support This Project
 
 [Donate via PayPal](https://www.paypal.com/donate/?business=PJVPSXG6V4CUG&no_recurring=1&item_name=Thank+you+for+the+coffee+%3A%29&currency_code=CAD)
 
-## 📄 License
+## 📄 License & Ownership
 
-MIT — use it, fork it, ship it. See [LICENSE](LICENSE) for details.
+This project is released under the [MIT License](LICENSE) — free to use, fork, modify, and ship, including in commercial products, as long as the copyright and license notice are kept.
+
+The copyright is owned by Harsimran Sidhu. The MIT license grants broad permission to use the code; it does not transfer ownership. The name "Website Downloader CLI" and any associated branding are not covered by the code license.
+
+### Commercial use, hosting, and support
+
+The open-source license already covers most commercial use. If you'd like something the MIT license doesn't provide — a **commercial/OEM license** with different terms, a **hosted or managed version**, **priority support**, or **custom features** — reach out via a [GitHub issue](https://github.com/PKHarsimran/website-downloader/issues) or the contact on the maintainer's [GitHub profile](https://github.com/PKHarsimran).
