@@ -13,6 +13,8 @@
 
 *A modern, hackable alternative to `wget --mirror` and HTTrack — built in pure Python, without dragging in a heavy crawler framework.*
 
+📖 **[Read the Wiki](https://github.com/PKHarsimran/website-downloader/wiki)** — full CLI reference, cookbook, and troubleshooting · 📦 **[Install from PyPI](https://pypi.org/project/website-downloader/)**
+
 </div>
 
 ---
