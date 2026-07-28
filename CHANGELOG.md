@@ -11,6 +11,8 @@
 ### Fixed
 
 - Links to excluded pages are now saved pointing at the live URL instead of a local path that was never downloaded, which previously left a broken link in the offline mirror. ([#55](https://github.com/PKHarsimran/website-downloader/issues/55))
+- `--update` now persists each page's crawl depth in the cache and reseeds it on the next run, so `--max-depth` stays meaningful across update runs instead of resetting every cached page back to depth 0. ([#56](https://github.com/PKHarsimran/website-downloader/issues/56))
+- A page discovered through more than one link path now keeps the shallowest depth seen, rather than whichever path happened to reach it first; this mainly matters with `--page-threads` > 1, where discovery order isn't strictly breadth-first. ([#56](https://github.com/PKHarsimran/website-downloader/issues/56))
 
 ## v2.6.1 - 2026-07-08
 

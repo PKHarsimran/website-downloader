@@ -14,6 +14,7 @@ class CacheEntry:
     status_code: int
     etag: str | None = None
     last_modified: str | None = None
+    depth: int = 0
 
 
 class CrawlCache:
@@ -54,6 +55,7 @@ class CrawlCache:
         kind: str,
         status_code: int,
         response_headers: dict[str, Any],
+        depth: int = 0,
     ) -> None:
         self.entries[url] = CacheEntry(
             url=url,
@@ -62,6 +64,7 @@ class CrawlCache:
             status_code=status_code,
             etag=response_headers.get("ETag"),
             last_modified=response_headers.get("Last-Modified"),
+            depth=depth,
         )
 
     def save(self, path: Path) -> None:

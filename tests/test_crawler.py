@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import shutil
+import time
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -128,6 +130,39 @@ def test_crawl_site_respects_max_depth(depth_chain_site, tmp_path: Path) -> None
     assert (output / "level1.html").exists()
     assert not (output / "level2.html").exists()
     assert not (output / "level3.html").exists()
+
+
+def test_update_reseed_preserves_recorded_depth(depth_chain_site, tmp_path: Path) -> None:
+    base_url, site = depth_chain_site
+    output = tmp_path / "mirror"
+    cache_file = tmp_path / "cache.json"
+
+    def options() -> CrawlOptions:
+        return CrawlOptions(
+            start_url=base_url,
+            root=output,
+            max_pages=10,
+            max_depth=1,
+            update=True,
+            cache_file=cache_file,
+        )
+
+    crawl_site(options())
+    assert (output / "level1.html").exists()
+    assert not (output / "level2.html").exists()
+
+    # Force a real refetch of level1 (not a 304) on the next run, so its
+    # links are rediscovered and the reseed-depth path is actually exercised.
+    level1_path = site / "level1.html"
+    future = time.time() + 3600
+    level1_path.write_text(level1_path.read_text(encoding="utf-8"), encoding="utf-8")
+    os.utime(level1_path, (future, future))
+
+    # On a second --update run, level1 is reseeded from the cache. If its
+    # recorded depth (1) were not preserved, it would reseed at depth 0 and
+    # incorrectly rediscover level2 within --max-depth 1.
+    crawl_site(options())
+    assert not (output / "level2.html").exists()
 
 
 def test_crawl_site_max_depth_zero_only_fetches_seeds(depth_chain_site, tmp_path: Path) -> None:

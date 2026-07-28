@@ -86,6 +86,7 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
     start_url = canonicalize_url(options.start_url)
     seen_pages: set[str] = set()
     queued_pages: set[str] = set()
+    page_depth: dict[str, int] = {}
     queued_assets: set[str] = set()
     asset_lock = threading.Lock()
     cache_lock = threading.Lock()
@@ -139,6 +140,11 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
             log.debug("Excluded page (blacklist match): %s", normalized)
             return
         with page_lock:
+            # With page_threads > 1, a page can be discovered through more
+            # than one path before it is dequeued; always remember the
+            # shallowest depth seen so children are bounded correctly.
+            if normalized not in page_depth or depth < page_depth[normalized]:
+                page_depth[normalized] = depth
             if normalized not in queued_pages and normalized not in seen_pages:
                 q_pages.put((normalized, depth))
                 queued_pages.add(normalized)
@@ -159,10 +165,12 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
         enqueue_page(canonicalize_url(extra_url))
     if options.update:
         # Saved pages contain rewritten local links, so a 304 page cannot be
-        # re-discovered from its own HTML. Seed known pages from the cache.
+        # re-discovered from its own HTML. Seed known pages from the cache at
+        # their previously recorded depth, so --max-depth stays meaningful
+        # across update runs instead of resetting every cached page to 0.
         for cached_url, entry in crawl_cache.entries.items():
             if entry.kind == "page":
-                enqueue_page(cached_url)
+                enqueue_page(cached_url, depth=entry.depth)
     if options.sitemap:
         for sitemap_url in load_sitemap_urls(
             options.sitemap,
@@ -288,6 +296,7 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                                     kind="page",
                                     status_code=result.status_code,
                                     response_headers=result.headers,
+                                    depth=depth,
                                 )
                         with record_lock:
                             saved_records.append(
@@ -307,18 +316,23 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                 if options.delay:
                     time.sleep(options.delay)
 
+            def resolve_depth(page_url: str, queued_depth: int) -> int:
+                with page_lock:
+                    return page_depth.get(page_url, queued_depth)
+
             if page_threads == 1:
                 # Inline path keeps Playwright rendering on this thread.
                 while not q_pages.empty() and len(seen_pages) < options.max_pages:
-                    page_url, depth = q_pages.get()
+                    page_url, queued_depth = q_pages.get()
                     if claim_page(page_url):
-                        process_page(page_url, depth)
+                        process_page(page_url, resolve_depth(page_url, queued_depth))
             else:
                 _run_page_pool(
                     page_threads=page_threads,
                     q_pages=q_pages,
                     claim_page=claim_page,
                     process_page=process_page,
+                    resolve_depth=resolve_depth,
                     max_pages=options.max_pages,
                     seen_pages=seen_pages,
                 )
@@ -364,6 +378,7 @@ def _run_page_pool(
     q_pages: queue.Queue[tuple[str, int]],
     claim_page: Callable[[str], bool],
     process_page: Callable[[str, int], None],
+    resolve_depth: Callable[[str, int], int],
     max_pages: int,
     seen_pages: set[str],
 ) -> None:
@@ -378,10 +393,11 @@ def _run_page_pool(
         while True:
             while len(seen_pages) < max_pages and len(pending) < page_threads:
                 try:
-                    page_url, depth = q_pages.get_nowait()
+                    page_url, queued_depth = q_pages.get_nowait()
                 except queue.Empty:
                     break
                 if claim_page(page_url):
+                    depth = resolve_depth(page_url, queued_depth)
                     pending.add(pool.submit(process_page, page_url, depth))
             if not pending:
                 break
