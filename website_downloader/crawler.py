@@ -14,7 +14,8 @@ from urllib.robotparser import RobotFileParser
 from .cache import CrawlCache
 from .constants import ASSET_EXTENSIONS, DEFAULT_USER_AGENT, PAGE_SUFFIXES, TIMEOUT
 from .exports import SavedResource, create_zip_archive, write_warc
-from .http import create_session, fetch_binary, fetch_html
+from .http import FetchFailure, create_session, fetch_binary, fetch_html
+from .manifest import CrawlManifest
 from .paths import cdn_local_path, create_dir, safe_write_text, to_local_asset_path, to_local_path
 from .progress import create_progress_reporter
 from .render import PlaywrightRenderer
@@ -67,6 +68,7 @@ class CrawlOptions:
     progress: bool = False
     zip_output: Path | None = None
     warc_output: Path | None = None
+    manifest: Path | None = None
 
 
 @dataclass
@@ -84,6 +86,13 @@ class CrawlStats:
 def crawl_site(options: CrawlOptions) -> CrawlStats:
     q_pages: queue.Queue[tuple[str, int]] = queue.Queue()
     start_url = canonicalize_url(options.start_url)
+    manifest = CrawlManifest(
+        options.manifest,
+        options.root,
+        list(
+            dict.fromkeys([start_url, *(canonicalize_url(url) for url in options.extra_start_urls)])
+        ),
+    )
     seen_pages: set[str] = set()
     queued_pages: set[str] = set()
     queued_assets: set[str] = set()
@@ -132,24 +141,41 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
     stats = CrawlStats(pages_seen=0, assets_queued=0, elapsed_seconds=0.0)
 
     def enqueue_page(url: str, depth: int = 0) -> None:
-        if options.max_depth is not None and depth > options.max_depth:
-            return
         normalized = canonicalize_url(url, start_url)
+        if options.max_depth is not None and depth > options.max_depth:
+            manifest.record(
+                "page", normalized, only_new=True, status="skipped", reason="max_depth", depth=depth
+            )
+            return
         if is_blacklisted(normalized, options.exclude_patterns):
             log.debug("Excluded page (blacklist match): %s", normalized)
+            manifest.record(
+                "page", normalized, only_new=True, status="skipped", reason="excluded", depth=depth
+            )
             return
         with page_lock:
             if normalized not in queued_pages and normalized not in seen_pages:
                 q_pages.put((normalized, depth))
                 queued_pages.add(normalized)
+                manifest.record("page", normalized, status="pending", reason=None, depth=depth)
 
     def enqueue_asset(url: str, dest: Path) -> None:
         abs_url = canonicalize_url(url)
+        if not is_internal(abs_url, root_netloc):
+            reason = None
+            if not options.download_external_assets:
+                reason = "external_downloads_disabled"
+            elif not is_allowed_external(abs_url, options.external_domains):
+                reason = "external_domain_not_allowed"
+            if reason:
+                manifest.record("asset", abs_url, only_new=True, status="skipped", reason=reason)
+                return
         with asset_lock:
             if abs_url in queued_assets:
                 return
             queued_assets.add(abs_url)
             stats.assets_queued = len(queued_assets)
+            manifest.record("asset", abs_url)
         progress_reporter.asset_queued()
         log.debug("Queue asset: %s -> %s", abs_url, dest)
         download_q.put((abs_url, dest))
@@ -188,6 +214,8 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
     )
     progress_reporter = create_progress_reporter(options.progress, options.max_pages)
     workers: list[threading.Thread] = []
+    completed = False
+    termination_reason = "error"
 
     try:
         with (
@@ -208,6 +236,7 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                 stats=stats,
                 stats_lock=stats_lock,
                 progress=progress,
+                manifest=manifest,
             )
             if options.update:
                 for cached_url, entry in list(crawl_cache.entries.items()):
@@ -220,6 +249,7 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                         return False
                     if robots is not None and not robots.can_fetch(user_agent, page_url):
                         log.info("Blocked by robots.txt: %s", page_url)
+                        manifest.record("page", page_url, status="skipped", reason="robots_txt")
                         return False
                     seen_pages.add(page_url)
                     claimed = len(seen_pages)
@@ -229,8 +259,14 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                 return True
 
             def process_page(page_url: str, depth: int) -> None:
+                page_assets: set[str] = set()
+
                 def enqueue_child_page(url: str) -> None:
                     enqueue_page(url, depth + 1)
+
+                def enqueue_page_asset(url: str, dest: Path) -> None:
+                    page_assets.add(canonicalize_url(url))
+                    enqueue_asset(url, dest)
 
                 try:
                     local_path = to_local_path(urlparse(page_url), options.root)
@@ -244,18 +280,54 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                         ),
                         cached_path=local_path,
                     )
-                    if result is None or result.soup is None:
+                    if isinstance(result, FetchFailure):
+                        manifest.record("page", page_url, **result.manifest_fields())
                         with stats_lock:
                             stats.errors += 1
                         progress.error()
                         return
 
+                    if options.manifest is not None:
+                        manifest.record(
+                            "page",
+                            page_url,
+                            status_code=result.status_code,
+                            content_type=result.content_type,
+                            title=(
+                                result.soup.title.get_text(" ", strip=True)
+                                if result.soup.title
+                                else None
+                            ),
+                            headings=[
+                                {"level": int(tag.name[1]), "text": tag.get_text(" ", strip=True)}
+                                for tag in result.soup.find_all(
+                                    ["h1", "h2", "h3", "h4", "h5", "h6"]
+                                )
+                            ],
+                        )
                     if result.not_modified:
                         # The saved copy has links rewritten to local paths, so
                         # discovering references from it would queue bogus URLs.
                         with stats_lock:
                             stats.pages_cached += 1
                         progress.page_saved(cached=True)
+                        entry = crawl_cache.get(page_url)
+                        if entry is not None and entry.assets is not None:
+                            for asset_url in entry.assets:
+                                parsed_asset = urlparse(asset_url)
+                                asset_path = (
+                                    to_local_asset_path(parsed_asset, options.root)
+                                    if is_internal(asset_url, root_netloc)
+                                    else cdn_local_path(parsed_asset, options.root)
+                                )
+                                enqueue_asset(asset_url, asset_path)
+                        manifest.record(
+                            "page",
+                            page_url,
+                            status="cached",
+                            path=local_path,
+                            assets=entry.assets if entry else None,
+                        )
                     else:
                         _discover_references(
                             result.soup,
@@ -263,7 +335,7 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                             root=options.root,
                             root_netloc=root_netloc,
                             enqueue_page=enqueue_child_page,
-                            enqueue_asset=enqueue_asset,
+                            enqueue_asset=enqueue_page_asset,
                             options=options,
                         )
                         create_dir(local_path.parent)
@@ -276,7 +348,14 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                             options.external_domains,
                             options.exclude_patterns,
                         )
-                        safe_write_text(local_path, str(result.soup), encoding="utf-8")
+                        local_path = safe_write_text(local_path, str(result.soup), encoding="utf-8")
+                        manifest.record(
+                            "page",
+                            page_url,
+                            status="downloaded",
+                            path=local_path,
+                            assets=sorted(page_assets),
+                        )
                         with stats_lock:
                             stats.pages_written += 1
                         progress.page_saved()
@@ -288,6 +367,7 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                                     kind="page",
                                     status_code=result.status_code,
                                     response_headers=result.headers,
+                                    assets=sorted(page_assets),
                                 )
                         with record_lock:
                             saved_records.append(
@@ -299,8 +379,15 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                                     content_type=result.content_type or "text/html",
                                 )
                             )
-                except Exception:
+                except Exception as exc:
                     log.exception("Failed to process page %s", page_url)
+                    manifest.record(
+                        "page",
+                        page_url,
+                        status="failed",
+                        reason="processing_error",
+                        errors=[{"type": type(exc).__name__, "message": str(exc)}],
+                    )
                     with stats_lock:
                         stats.errors += 1
                     progress.error()
@@ -322,6 +409,11 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
                     max_pages=options.max_pages,
                     seen_pages=seen_pages,
                 )
+            completed = True
+            termination_reason = "max_pages" if not q_pages.empty() else "finished"
+    except KeyboardInterrupt:
+        termination_reason = "interrupted"
+        raise
     finally:
         download_q.join()
         for _ in workers:
@@ -329,6 +421,8 @@ def crawl_site(options: CrawlOptions) -> CrawlStats:
         download_q.join()
         for worker in workers:
             worker.join(timeout=5)
+        stats.elapsed_seconds = time.time() - start_time
+        manifest.write(stats, completed=completed, termination_reason=termination_reason)
 
     elapsed = time.time() - start_time
     stats.elapsed_seconds = elapsed
@@ -386,6 +480,8 @@ def _run_page_pool(
             if not pending:
                 break
             _done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in _done:
+                future.result()
 
 
 class _optional_renderer:
@@ -418,6 +514,7 @@ def _start_workers(
     stats: CrawlStats,
     stats_lock: threading.Lock,
     progress,
+    manifest: CrawlManifest,
 ) -> list[threading.Thread]:
     def worker() -> None:
         session = create_session(
@@ -445,11 +542,21 @@ def _start_workers(
                     update=options.update,
                     conditional_headers=cache.conditional_headers(url) if options.update else None,
                 )
-                if result is None:
-                    with stats_lock:
-                        stats.errors += 1
-                    progress.error()
+                if isinstance(result, FetchFailure):
+                    manifest.record("asset", url, **result.manifest_fields())
+                    if not result.skipped:
+                        with stats_lock:
+                            stats.errors += 1
+                        progress.error()
                     continue
+                manifest.record(
+                    "asset",
+                    url,
+                    path=result.path,
+                    status="cached" if result.not_modified else "downloaded",
+                    status_code=result.status_code,
+                    content_type=result.content_type,
+                )
                 if result.not_modified:
                     with stats_lock:
                         stats.assets_cached += 1
@@ -477,6 +584,18 @@ def _start_workers(
                             content_type=result.content_type,
                         )
                     )
+            except Exception as exc:
+                log.exception("Failed to process asset %s", url)
+                manifest.record(
+                    "asset",
+                    url,
+                    status="failed",
+                    reason="processing_error",
+                    errors=[{"type": type(exc).__name__, "message": str(exc)}],
+                )
+                with stats_lock:
+                    stats.errors += 1
+                progress.error()
             finally:
                 download_q.task_done()
 
@@ -662,17 +781,6 @@ def _enqueue_asset_candidate(
         return
 
     is_ext = not is_internal(abs_url, root_netloc)
-    if is_ext:
-        if not options.download_external_assets:
-            return
-        if not is_allowed_external(abs_url, options.external_domains):
-            log.debug("Blocked external asset outside whitelist: %s", abs_url)
-            return
-        if tag_name not in EXTENSIONLESS_ASSET_TAGS and not parsed.path.lower().endswith(
-            ASSET_EXTENSIONS
-        ):
-            return
-
     if not is_ext and not parsed.path:
         return
 

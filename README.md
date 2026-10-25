@@ -46,6 +46,10 @@ The classic script entry point still works too:
 python website-downloader.py --url https://example.com --destination example_backup
 ```
 
+## ☕ Support This Project
+
+[Donate via PayPal](https://www.paypal.com/donate/?business=PJVPSXG6V4CUG&no_recurring=1&item_name=Thank+you+for+the+coffee+%3A%29&currency_code=CAD)
+
 ## 🤔 Why Not Just wget or HTTrack?
 
 Those tools are great — until you hit a modern website. This project exists for the gap between "one-liner that misses half the assets" and "write your own Scrapy project."
@@ -69,6 +73,7 @@ Those tools are great — until you hit a modern website. This project exists fo
 - 🍪 **Authenticated** — reuse browser cookies and custom headers for portals, intranets, and staging sites you're allowed to access.
 - 🧭 **Sitemap seeding** — start from `sitemap.xml` (including nested sitemap indexes) for complete discovery.
 - 📦 **Portable output** — export mirrors as zip archives or WARC 1.1 response records.
+- 📋 **Crawl reports** — `--manifest crawl.json` records pages, assets, titles, headings, HTTP status codes, skipped resources, and errors.
 - 🤝 **Polite by default** — sequential pages unless you opt in, `--respect-robots`, `--delay`, retry with backoff, and per-asset size caps.
 - 🪟 **Cross-platform paths** — sanitizes Windows reserved names, shortens long paths, and hashes query strings to avoid collisions.
 - 🧪 **Tested** — pytest suite running against a real local HTTP fixture server, with CI and lint gates.
@@ -282,6 +287,14 @@ website-downloader ^
   --warc-output example_backup.warc
 ```
 
+Write a crawl manifest for auditing or automation:
+
+```bash
+website-downloader --url https://example.com --destination example_backup --manifest example_backup/crawl.json
+```
+
+The versioned JSON report includes downloaded, cached, failed, and skipped resources, page titles and headings, direct page-to-asset references, and crawl statistics. Local paths are relative to the mirror folder. It works with parallel crawling, `--update`, and `--render-js`; unavailable HTTP status codes are `null`. See the [manifest format and limitations](docs/manifest.md). Resume support remains on the roadmap.
+
 ## ⚛️ JavaScript-Rendered Sites
 
 Some modern sites do not expose their real links and assets until JavaScript runs. For those, install the optional Playwright extra:
@@ -321,6 +334,7 @@ If `rich` is not installed, the crawler falls back to normal logging instead of 
 | `--sitemap` | Seeds the crawl from `sitemap.xml` or a supplied sitemap. | Faster, more complete discovery. |
 | `--exclude` / `--exclude-file` | Skips pages whose URL matches a glob pattern. | Ignoring forums, drafts, or other sections you don't want mirrored. |
 | `--progress` | Shows a Rich terminal progress dashboard when installed. | Long crawls where visibility matters. |
+| `--manifest FILE` | Writes a versioned JSON report of resource outcomes, page metadata, and errors. | Auditing mirrors and integrating with automation. |
 | `--zip-output` | Exports the mirror folder as a zip. | Sharing, attaching, or storing snapshots. |
 | `--warc-output` | Writes a simple WARC response archive. | Archival workflows and future replay tooling. |
 
@@ -387,13 +401,14 @@ Using PyCharm? Open the repo folder, point it at a Python 3.10+ virtualenv, run 
 | `website_downloader/sitemap.py` | Sitemap and sitemap-index loading. |
 | `website_downloader/progress.py` | Optional Rich progress dashboard. |
 | `website_downloader/exports.py` | Zip and WARC export helpers. |
+| `website_downloader/manifest.py` | Thread-safe crawl reporting and atomic JSON output. |
 | `tests/` | Local pytest suite with a tiny fixture HTTP server. |
 
 </details>
 
 ## 🗺 Roadmap
 
-- `--manifest crawl.json` with pages, assets, status codes, titles, headings, and errors.
+- Resume interrupted crawls using persisted queue and resource state.
 - Login-flow recording for complex SSO sites.
 - Stronger WARC metadata and replay compatibility.
 - Visual diff mode for migration and redesign checks.
@@ -412,9 +427,17 @@ By submitting a contribution, you agree to the [Contributor License Agreement](C
 
 If this tool saved you time, consider **starring the repo** ⭐ — it helps others find it.
 
-## ☕ Support This Project
+## ⭐ Star History
 
-[Donate via PayPal](https://www.paypal.com/donate/?business=PJVPSXG6V4CUG&no_recurring=1&item_name=Thank+you+for+the+coffee+%3A%29&currency_code=CAD)
+See how the repository's GitHub stars have grown over time:
+
+<a href="https://www.star-history.com/?repos=PKHarsimran%2Fwebsite-downloader&amp;type=date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=PKHarsimran/website-downloader&amp;type=Date&amp;theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=PKHarsimran/website-downloader&amp;type=Date" />
+    <img alt="GitHub stars over time for website-downloader" src="https://api.star-history.com/svg?repos=PKHarsimran/website-downloader&amp;type=Date" />
+  </picture>
+</a>
 
 ## 📄 License & Ownership
 

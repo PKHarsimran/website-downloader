@@ -206,6 +206,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Show a live Rich progress dashboard when the ux extra is installed.",
     )
     parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Write a JSON crawl report with pages, assets, metadata, skipped resources, and errors.",
+    )
+    parser.add_argument(
         "--zip-output",
         type=Path,
         default=None,
@@ -332,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
         progress=args.progress,
         zip_output=args.zip_output,
         warc_output=args.warc_output,
+        manifest=args.manifest,
     )
     crawl_site(options)
     return 0
