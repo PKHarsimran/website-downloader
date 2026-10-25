@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from types import TracebackType
 from urllib.parse import urlparse
 
 from .constants import DEFAULT_USER_AGENT
+
+
+@dataclass
+class RenderedPage:
+    html: str
+    status_code: int | None
+    headers: dict[str, str]
 
 
 class PlaywrightRenderer:
@@ -72,13 +80,17 @@ class PlaywrightRenderer:
             ]
         )
 
-    def fetch(self, url: str) -> str:
+    def fetch(self, url: str) -> RenderedPage:
         if self._context is None:
             raise RuntimeError("Renderer is not started")
 
         page = self._context.new_page()
         try:
-            page.goto(url, wait_until=self.wait_until, timeout=self.timeout_ms)
-            return page.content()
+            response = page.goto(url, wait_until=self.wait_until, timeout=self.timeout_ms)
+            return RenderedPage(
+                html=page.content(),
+                status_code=response.status if response is not None else None,
+                headers=dict(response.headers) if response is not None else {},
+            )
         finally:
             page.close()

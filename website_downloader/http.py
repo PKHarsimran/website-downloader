@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 @dataclass
 class HtmlFetchResult:
     soup: BeautifulSoup | None
-    status_code: int
+    status_code: int | None
     headers: dict[str, str]
     not_modified: bool = False
     content_type: str | None = None
@@ -29,10 +29,33 @@ class HtmlFetchResult:
 @dataclass
 class BinaryFetchResult:
     path: Path
-    status_code: int
+    status_code: int | None
     headers: dict[str, str]
     not_modified: bool = False
     content_type: str | None = None
+
+
+@dataclass
+class FetchFailure:
+    reason: str
+    status_code: int | None = None
+    message: str | None = None
+    error_type: str | None = None
+    skipped: bool = False
+
+    def manifest_fields(self) -> dict:
+        return {
+            "status": "skipped" if self.skipped else "failed",
+            "status_code": self.status_code,
+            "reason": self.reason,
+            "errors": (
+                [{"type": self.error_type, "message": self.message}] if not self.skipped else []
+            ),
+        }
+
+
+class AssetTooLargeError(ValueError):
+    pass
 
 
 def create_session(
@@ -70,15 +93,23 @@ def fetch_html(
     renderer=None,
     conditional_headers: dict[str, str] | None = None,
     cached_path: Path | None = None,
-) -> HtmlFetchResult | None:
+) -> HtmlFetchResult | FetchFailure:
+    response = None
     try:
         if renderer is not None:
-            html = renderer.fetch(url)
+            rendered = renderer.fetch(url)
+            if rendered.status_code is not None and rendered.status_code >= 400:
+                return FetchFailure(
+                    "http_error",
+                    rendered.status_code,
+                    f"Rendered navigation returned HTTP {rendered.status_code}",
+                    "HTTPError",
+                )
             return HtmlFetchResult(
-                soup=BeautifulSoup(html, HTML_PARSER),
-                status_code=200,
-                headers={},
-                content_type="text/html",
+                soup=BeautifulSoup(rendered.html, HTML_PARSER),
+                status_code=rendered.status_code,
+                headers=rendered.headers,
+                content_type=rendered.headers.get("content-type", "text/html"),
             )
         response = session.get(url, timeout=timeout, headers=conditional_headers)
         headers = dict(response.headers)
@@ -106,7 +137,12 @@ def fetch_html(
         )
     except Exception as exc:
         log.warning("HTTP error for %s: %s", url, exc)
-        return None
+        return FetchFailure(
+            "fetch_error",
+            response.status_code if response is not None else None,
+            str(exc),
+            type(exc).__name__,
+        )
 
 
 def fetch_binary(
@@ -123,26 +159,27 @@ def fetch_binary(
     enqueue_asset: EnqueueAsset | None = None,
     update: bool = False,
     conditional_headers: dict[str, str] | None = None,
-) -> BinaryFetchResult | None:
+) -> BinaryFetchResult | FetchFailure:
     is_ext = not is_internal(url, root_netloc)
     if is_ext and not download_external_assets:
         log.debug("Blocked external asset because external downloads are disabled: %s", url)
-        return
+        return FetchFailure("external_downloads_disabled", skipped=True)
     if is_ext and not is_allowed_external(url, external_domains):
         log.info("Blocked external asset outside whitelist: %s", url)
-        return
+        return FetchFailure("external_domain_not_allowed", skipped=True)
     if is_non_fetchable(url) or not is_httpish(url):
         log.debug("Skipping non-fetchable URL: %s", url)
-        return None
+        return FetchFailure("non_fetchable_url", skipped=True)
     if dest.exists() and not update:
         # Already mirrored in a previous run; report it as cached.
         return BinaryFetchResult(
             path=dest,
-            status_code=200,
+            status_code=None,
             headers={},
             not_modified=True,
         )
 
+    response = None
     try:
         response = session.get(url, timeout=timeout, stream=True, headers=conditional_headers)
         headers = dict(response.headers)
@@ -163,7 +200,7 @@ def fetch_binary(
         response.raise_for_status()
         if _too_large(response, max_asset_bytes):
             log.warning("Skipping asset over size limit: %s", url)
-            return None
+            return FetchFailure("max_asset_bytes", response.status_code, skipped=True)
 
         create_dir(dest.parent)
         final_dest = _write_stream(response, dest, max_asset_bytes=max_asset_bytes)
@@ -198,7 +235,16 @@ def fetch_binary(
         )
     except Exception as exc:
         log.error("Failed to save %s: %s", url, exc)
-        return None
+        return FetchFailure(
+            "max_asset_bytes" if isinstance(exc, AssetTooLargeError) else "fetch_error",
+            response.status_code if response is not None else None,
+            str(exc),
+            type(exc).__name__,
+            skipped=isinstance(exc, AssetTooLargeError),
+        )
+    finally:
+        if response is not None:
+            response.close()
 
 
 def _read_cached_html(cached_path: Path | None) -> BeautifulSoup | None:
@@ -253,7 +299,7 @@ def _stream_to_path(
             if max_asset_bytes is not None and written > max_asset_bytes:
                 file.close()
                 dest.unlink(missing_ok=True)
-                raise ValueError(f"Asset exceeds --max-asset-bytes ({max_asset_bytes})")
+                raise AssetTooLargeError(f"Asset exceeds --max-asset-bytes ({max_asset_bytes})")
             file.write(chunk)
 
 

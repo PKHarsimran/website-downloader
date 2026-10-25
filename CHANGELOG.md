@@ -2,15 +2,29 @@
 
 ## Unreleased
 
+## v2.7.0 - 2026-10-25
+
 ### Added
 
+- `--manifest FILE` writes a versioned JSON crawl report containing pages, assets, actual HTTP status codes (or `null` when unknown), titles, heading levels and text, direct page-to-asset references, errors, timestamps, and crawl statistics. Reports include cached and skipped resources, support parallel crawling, and are written atomically. ([#60](https://github.com/PKHarsimran/website-downloader/issues/60))
+- Gracefully interrupted crawls write a partial manifest marked `completed: false`; automatic resume is not yet supported.
 - `--exclude` / `--exclude-file` skip pages whose URL matches a glob pattern (e.g. `*/forum/*`), so unwanted sections of a site (forums, drafts, etc.) are no longer crawled. ([#55](https://github.com/PKHarsimran/website-downloader/issues/55))
 - `--url` can now be repeated, and `--url-file` seeds additional starting URLs from a text file, so one crawl can mirror several sections of a site instead of only a single starting page. ([#56](https://github.com/PKHarsimran/website-downloader/issues/56))
 - `--max-depth` limits how many link-hops are followed from each starting URL, keeping crawls focused instead of relying solely on `--max-pages`. ([#56](https://github.com/PKHarsimran/website-downloader/issues/56))
 
 ### Fixed
 
+- JavaScript-rendered pages now retain the navigation response status rather than always reporting HTTP 200; rendered HTTP errors are counted as failures.
+- Assets skipped by a configured size limit are distinguished from download failures and no longer inflate the error count.
+- Unexpected asset-processing exceptions are logged and counted without terminating the download worker.
+- Page cache and export records use the actual saved path when a filesystem fallback is needed.
+- Source distributions include the manifest documentation, CLI wrapper, changelog, and test fixtures.
 - Links to excluded pages are now saved pointing at the live URL instead of a local path that was never downloaded, which previously left a broken link in the offline mirror. ([#55](https://github.com/PKHarsimran/website-downloader/issues/55))
+
+### Documentation
+
+- Documented the manifest schema, cache behavior, and limits in `docs/manifest.md`.
+- Moved the donation link below Quick Start and added a light/dark star-history chart, preserving the README's existing structure.
 
 ## v2.6.1 - 2026-07-08
 

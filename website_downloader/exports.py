@@ -12,7 +12,7 @@ class SavedResource:
     url: str
     path: Path
     kind: str
-    status_code: int
+    status_code: int | None
     content_type: str | None = None
 
 

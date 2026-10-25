@@ -1,0 +1,3 @@
+include CHANGELOG.md CLA.md website-downloader.py
+include tests/conftest.py
+recursive-include docs *.md *.gif *.png
