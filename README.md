@@ -11,6 +11,8 @@
 [![Last Commit](https://img.shields.io/github/last-commit/PKHarsimran/website-downloader)](https://github.com/PKHarsimran/website-downloader/commits/main)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/PKHarsimran/website-downloader/pulls)
 
+<img src="docs/mirror-flow.gif" alt="Mirror a live website into a local copy, ready to explore offline" width="560" />
+
 *A modern, hackable alternative to `wget --mirror` and HTTrack — built in pure Python, without dragging in a heavy crawler framework.*
 
 📖 **[Read the Wiki](https://github.com/PKHarsimran/website-downloader/wiki)** — full CLI reference, cookbook, and troubleshooting · 📦 **[Install from PyPI](https://pypi.org/project/website-downloader/)**
@@ -48,7 +50,17 @@ python website-downloader.py --url https://example.com --destination example_bac
 
 ## ☕ Support This Project
 
-[Donate via PayPal](https://www.paypal.com/donate/?business=PJVPSXG6V4CUG&no_recurring=1&item_name=Thank+you+for+the+coffee+%3A%29&currency_code=CAD)
+<div align="center">
+
+**Saved you a few clicks? Fuel the next download.**
+
+<a href="https://www.paypal.com/donate/?business=PJVPSXG6V4CUG&amp;no_recurring=1&amp;item_name=Thank+you+for+the+coffee+%3A%29&amp;currency_code=CAD">
+  <img src="docs/coffee-button.gif" alt="Buy me a coffee — donate via PayPal" width="400" />
+</a>
+
+<sub>A little caffeine keeps the crawler crawling. Thanks for the support!</sub>
+
+</div>
 
 ## 🤔 Why Not Just wget or HTTrack?
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Documentation
+
+- Added an animated coffee donation button and a small mirroring animation to the README, with local GIF assets and accessible labels.
+
 ## v2.7.0 - 2026-10-25
 
 ### Added
