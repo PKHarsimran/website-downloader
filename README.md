@@ -92,6 +92,19 @@ Those tools are great — until you hit a modern website. This project exists fo
 
 ## 🛠 How It Works
 
+Follow the crawler from a starting URL to an offline mirror in this 32-second animated walkthrough:
+
+<p align="center">
+  <a href="docs/how-it-works.mp4">
+    <img src="docs/how-it-works.gif" alt="Animated walkthrough: start with a URL, discover pages, download assets in parallel, rewrite links, save a mirror and optional report, then browse offline" width="896" />
+  </a>
+</p>
+
+[720p video](docs/how-it-works.mp4) · [Scene-by-scene guide](https://github.com/PKHarsimran/website-downloader/wiki/How-It-Works#animated-walkthrough)
+
+<details>
+<summary><b>Explore the detailed crawl flowchart</b></summary>
+
 ```mermaid
 flowchart TD
     A["Start with a URL and CLI options"] --> B["Create session with cookies, headers, retries"]
@@ -123,6 +136,8 @@ flowchart TD
     U -- "No" --> W["Open index.html locally"]
     V --> W
 ```
+
+</details>
 
 In plain English:
 
