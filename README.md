@@ -95,12 +95,10 @@ Those tools are great — until you hit a modern website. This project exists fo
 Follow the crawler from a starting URL to an offline mirror in this 32-second animated walkthrough:
 
 <p align="center">
-  <a href="docs/how-it-works.mp4">
-    <img src="docs/how-it-works.gif" alt="Animated walkthrough: start with a URL, discover pages, download assets in parallel, rewrite links, save a mirror and optional report, then browse offline" width="896" />
-  </a>
+  <img src="docs/how-it-works.gif" alt="Animated walkthrough: start with a URL, discover pages, download assets in parallel, rewrite links, save a mirror and optional report, then browse offline" width="896" />
 </p>
 
-[720p video](docs/how-it-works.mp4) · [Scene-by-scene guide](https://github.com/PKHarsimran/website-downloader/wiki/How-It-Works#animated-walkthrough)
+[Download the 720p video](docs/how-it-works.mp4?raw=true) · [Scene-by-scene guide](https://github.com/PKHarsimran/website-downloader/wiki/How-It-Works#animated-walkthrough)
 
 <details>
 <summary><b>Explore the detailed crawl flowchart</b></summary>
